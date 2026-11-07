@@ -6,11 +6,11 @@ on:
       tag:
         description: 'Release tag'
         required: true
-        default: 'wonderx-v1-0.9.3-pure-rust-test-20261107-r4'
+        default: 'wonderx-v1-0.9.3-pure-rust-test-20261107-r5'
       core_commit:
         description: 'wonderx-core-rs commit'
         required: true
-        default: '8139498592a773bdfe1b99068388f46b3c1c7324'
+        default: '2054045cf59c671ed41bc9ba3d9861ecaf502343'
       client_ref:
         description: 'xxdmanfl0609 commit/branch'
         required: true
@@ -522,35 +522,3 @@ jobs:
         with:
           name: windows-output
           path: win_out/*
-
-  publish-release:
-    name: Publish r4 Release
-    needs: [build-and-package-android, build-and-package-windows]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: Organize release assets & Generate Checksums
-        shell: bash
-        run: |
-          mkdir -p release_assets
-          find artifacts/ -type f \( -name '*.apk' -o -name '*.exe' -o -name '*.zip' -o -name '*.so' \) | while read -r f; do
-            cp "$f" release_assets/
-          done
-
-          cd release_assets
-          sha256sum *.apk *.exe *.zip *.so > SHA256SUMS.txt
-          cat SHA256SUMS.txt
-          ls -lh
-
-      - name: Create Pre-release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ inputs.tag }}
-          name: WONDERX V1 ${{ inputs.tag }}
-          prerelease: true
-          files: release_assets/*
-          fail_on_unmatched_files: true
