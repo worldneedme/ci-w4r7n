@@ -10,7 +10,7 @@ on:
       core_commit:
         description: 'wonderx-core-rs commit'
         required: true
-        default: '2054045cf59c671ed41bc9ba3d9861ecaf502343'
+        default: '9bc7fe596faebba2b44243b9e4a3b8da8fa8f82f'
       client_ref:
         description: 'xxdmanfl0609 commit/branch'
         required: true
@@ -124,6 +124,13 @@ jobs:
         run: |
           cd core
           cargo test -p wonderx-desktop --quiet -- --nocapture
+
+      - name: Run wonderx-mobile contract tests (Linux)
+        env:
+          RUSTFLAGS: "-Awarnings"
+        run: |
+          cd core
+          cargo test -p wonderx-mobile --quiet -- --nocapture
 
   build-and-package-android:
     name: Build & Package Android APK (arm64-v8a)
@@ -522,3 +529,36 @@ jobs:
         with:
           name: windows-output
           path: win_out/*
+
+  publish-draft-release:
+    name: Publish r5 Draft Release
+    needs: [build-and-package-android, build-and-package-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Organize release assets & Generate Checksums
+        shell: bash
+        run: |
+          mkdir -p release_assets
+          find artifacts/ -type f \( -name '*.apk' -o -name '*.exe' -o -name '*.zip' -o -name '*.so' \) | while read -r f; do
+            cp "$f" release_assets/
+          done
+
+          cd release_assets
+          sha256sum *.apk *.exe *.zip *.so > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          ls -lh
+
+      - name: Create Draft Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag }}
+          name: WONDERX V1 ${{ inputs.tag }}
+          draft: true
+          prerelease: false
+          files: release_assets/*
+          fail_on_unmatched_files: true
