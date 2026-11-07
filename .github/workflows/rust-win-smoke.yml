@@ -1,6 +1,14 @@
 name: Rust Windows Smoke
 
 on:
+  workflow_call:
+    inputs:
+      tag: { type: string, default: 'wonderx-v1-0.9.3-pure-rust-test-20261107-r7' }
+      run_id: { type: string, default: '42375789422' }
+      core_artifact_run: { type: string, default: '' }
+      core_artifact_name: { type: string, default: '' }
+      loops: { type: string, default: '5' }
+      diagnostics: { type: string, default: 'true' }
   workflow_dispatch:
     inputs:
       tag:
@@ -57,7 +65,14 @@ jobs:
           ls -la dl
           sha256sum dl/*.zip dl/*.exe || true
 
-      - name: Fetch core-under-test (optional)
+      - name: Fetch core-under-test (same run)
+        if: ${{ inputs.core_artifact_name != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.core_artifact_name }}
+          path: cut
+
+      - name: Fetch core-under-test (other run)
         if: ${{ inputs.core_artifact_run != '' }}
         shell: bash
         env:

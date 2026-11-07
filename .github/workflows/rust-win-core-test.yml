@@ -1,0 +1,94 @@
+name: Rust Windows Core Test (build-only, no release)
+
+on:
+  workflow_dispatch:
+    inputs:
+      core_commit:
+        description: 'wonderx-core-rs full 40-char commit SHA'
+        required: true
+      loops:
+        description: 'Consecutive gated smoke runs'
+        required: true
+        default: '5'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build-core:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - name: Validate SHA
+        shell: bash
+        run: |
+          [[ "${{ inputs.core_commit }}" =~ ^[0-9a-f]{40}$ ]] || { echo "core_commit must be a full 40-char SHA"; exit 1; }
+      - name: Setup SSH keys
+        shell: bash
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.CORE_READ_KEY }}" > ~/.ssh/id_core
+          printf '%s\n' "${{ secrets.PROTO_READ_KEY }}" > ~/.ssh/id_proto
+          chmod 600 ~/.ssh/id_core ~/.ssh/id_proto 2>/dev/null || true
+          cat > ~/.ssh/config << 'CFG'
+          Host github.com-core
+            HostName github.com
+            User git
+            IdentityFile ~/.ssh/id_core
+            IdentitiesOnly yes
+            StrictHostKeyChecking accept-new
+          Host github.com-proto
+            HostName github.com
+            User git
+            IdentityFile ~/.ssh/id_proto
+            IdentitiesOnly yes
+            StrictHostKeyChecking accept-new
+          CFG
+          git config --global url."git@github.com-proto:worldneedme/wonderx-proto-rs.git".insteadOf "https://github.com/worldneedme/wonderx-proto-rs.git"
+          git config --global --add url."git@github.com-proto:worldneedme/wonderx-proto-rs.git".insteadOf "git@github.com:worldneedme/wonderx-proto-rs.git"
+          git config --global --add url."git@github.com-proto:worldneedme/wonderx-proto-rs.git".insteadOf "https://github.com/worldneedme/wonderx-proto-rs"
+      - name: Clone wonderx-core-rs
+        shell: bash
+        run: |
+          git clone git@github.com-core:worldneedme/wonderx-core-rs.git core
+          cd core && git checkout ${{ inputs.core_commit }} && git log -1 --oneline
+      - uses: ilammy/setup-nasm@v1
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core -> target
+      - name: Unit tests (meow-rules country_index, wonderx-desktop)
+        shell: bash
+        env:
+          RUSTFLAGS: "-Awarnings"
+        run: |
+          cd core
+          cargo test -p meow-rules --quiet --lib country_index
+          cargo test -p wonderx-desktop --quiet
+      - name: Build FlClashCore.exe
+        shell: bash
+        env:
+          CARGO_PROFILE_RELEASE_DEBUG: "false"
+          CARGO_PROFILE_RELEASE_STRIP: "true"
+          RUSTFLAGS: "-Awarnings"
+        run: |
+          cd core
+          cargo build -p wonderx-desktop --release --quiet
+          mkdir -p ../cut && cp target/release/FlClashCore.exe ../cut/
+          sha256sum ../cut/FlClashCore.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: core-under-test
+          path: cut/FlClashCore.exe
+          retention-days: 7
+
+  smoke:
+    needs: build-core
+    uses: ./.github/workflows/rust-win-smoke.yml
+    with:
+      core_artifact_name: core-under-test
+      loops: ${{ inputs.loops }}
+      diagnostics: 'true'
