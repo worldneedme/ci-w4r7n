@@ -1,0 +1,326 @@
+name: WONDERX V1 0.9.3 Go package (draft)
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Source branch or commit to build
+        required: true
+        type: string
+      release_tag:
+        description: Release tag to publish
+        required: true
+        type: string
+      platform:
+        description: Build platform (windows, android, or all)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  IS_TAG: 'true'
+  FLUTTER_VERSION: '3.47.6'
+  GO_VERSION: '1.27.1'
+  NDK_VERSION: r28c
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate requested platform
+        env:
+          BUILD_PLATFORM: ${{ inputs.platform }}
+        run: |
+          case "$BUILD_PLATFORM" in
+            windows|android|all) ;;
+            *) echo "Unsupported build platform: $BUILD_PLATFORM" >&2; exit 1 ;;
+          esac
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          repository: worldneedme/xxdmanfl0609
+          ref: ${{ inputs.source_ref }}
+          ssh-key: ${{ secrets.CLIENT_READ_KEY }}
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos
+
+      - name: Validate local Flutter packages
+        run: bash tool/check_plugins.sh
+
+      - name: Validate setup hooks package
+        working-directory: plugins/setup/setup_hooks
+        run: |
+          dart pub get
+          dart analyze
+          dart test
+
+      # flutter test would otherwise run the native build hooks and compile the
+      # whole Go core and Rust plugin just to run Dart unit tests.
+      - name: Skip native build hooks
+        run: |
+          yq -i '.hooks.user_defines.setup.build_assets = false' pubspec.yaml
+
+      - name: Run tests
+        run: flutter test --reporter expanded
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: |
+            core/go.sum
+            core/Clash.Meta/go.sum
+
+      - name: Validate Go core wrapper
+        working-directory: core
+        env:
+          CGO_ENABLED: 0
+        run: |
+          unformatted=$(find . -path ./Clash.Meta -prune -o -type f -name '*.go' -print0 | xargs -0 -r gofmt -l)
+          test -z "$unformatted" || {
+            printf '%s\n' "$unformatted" >&2
+            exit 1
+          }
+          go test .
+          go vet . ./cmd/...
+          GOOS=linux go vet ./platform
+          GOOS=android GOARCH=arm64 go vet -tags=with_gvisor . ./mobile ./tun ./platform
+
+      - name: Validate WONDERX protocols
+        working-directory: core/Clash.Meta
+        run: |
+          go test ./adapter ./config ./adapter/outbound \
+            -run 'TestParseHelperBackedProtocols|TestParseHelperBackedProtocolConfig|TestNaiveProxyPasswordOnlyAndStablePort|TestJuicityNativeConstruction|TestJuicityNativeUsesFirstHopPort' \
+            -count=1 -timeout=120s
+
+      - name: Validate Rust components
+        run: |
+          cargo fmt --manifest-path services/helper/Cargo.toml -- --check
+          cargo test --manifest-path services/helper/Cargo.toml
+          cargo fmt --manifest-path plugins/rust_api/rust/Cargo.toml -- --check
+          cargo test --manifest-path plugins/rust_api/rust/Cargo.toml
+
+  windows-helper-test:
+    name: Windows helper test
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          repository: worldneedme/xxdmanfl0609
+          ref: ${{ inputs.source_ref }}
+          ssh-key: ${{ secrets.CLIENT_READ_KEY }}
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Check format
+        run: cargo fmt --manifest-path services/helper/Cargo.toml -- --check
+
+      - name: Run Windows service tests
+        run: cargo test --manifest-path services/helper/Cargo.toml --features windows-service
+
+  build:
+    name: Build ${{ matrix.platform }} ${{ matrix.arch }}
+    needs: [test, windows-helper-test]
+    runs-on: ${{ matrix.os }}
+    env:
+      IS_STABLE: ${{ !contains(inputs.release_tag, '-') }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: android
+            os: ubuntu-latest
+            arch: arm64-v8a
+            android_arch: arm64
+          - platform: windows
+            os: windows-2022
+            arch: amd64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          repository: worldneedme/xxdmanfl0609
+          ref: ${{ inputs.source_ref }}
+          ssh-key: ${{ secrets.CLIENT_READ_KEY }}
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Free disk space
+        if: matrix.platform == 'android'
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /usr/share/swift
+          sudo apt-get clean
+          df -h
+
+      - name: Setup Android signing
+        if: matrix.platform == 'android'
+        shell: bash
+        run: |
+          if [ -n "${{ secrets.KEYSTORE }}" ]; then
+            echo "${{ secrets.KEYSTORE }}" | base64 --decode > android/app/keystore.jks
+            {
+              echo "keyAlias=${{ secrets.KEY_ALIAS }}"
+              echo "storePassword=${{ secrets.STORE_PASSWORD }}"
+              echo "keyPassword=${{ secrets.KEY_PASSWORD }}"
+            } >> android/local.properties
+          fi
+          if [ -n "${{ secrets.SERVICE_JSON }}" ]; then
+            echo "${{ secrets.SERVICE_JSON }}" | base64 --decode > android/app/google-services.json
+          fi
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: |
+            core/go.sum
+            core/Clash.Meta/go.sum
+
+      - name: Setup Gradle
+        if: matrix.platform == 'android'
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Enable Git long paths
+        if: matrix.platform == 'windows'
+        run: git config --global core.longpaths true
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: master
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Setup NDK
+        if: matrix.platform == 'android'
+        uses: nttld/setup-ndk@v1
+        id: build-ndk
+        with:
+          ndk-version: ${{ env.NDK_VERSION }}
+          add-to-path: true
+          link-to-sdk: true
+
+      - name: Download Naive helper for Android
+        if: matrix.platform == 'android'
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(curl -fsSL https://api.github.com/repos/klzgrad/naiveproxy/releases/latest | sed -nE 's/.*"tag_name": "([^"]+)".*/\1/p' | head -1)
+          test -n "$version"
+          apk="naiveproxy-plugin-${version}-arm64-v8a.apk"
+          mkdir -p naive_tmp android/app/src/main/jniLibs/arm64-v8a
+          curl -fL -o "naive_tmp/$apk" "https://github.com/klzgrad/naiveproxy/releases/download/${version}/${apk}"
+          unzip -o "naive_tmp/$apk" 'lib/arm64-v8a/libnaive.so' -d naive_tmp/extracted
+          cp naive_tmp/extracted/lib/arm64-v8a/libnaive.so android/app/src/main/jniLibs/arm64-v8a/
+          test -s android/app/src/main/jniLibs/arm64-v8a/libnaive.so
+
+      - name: Install Flutter dependencies
+        run: |
+          flutter --version
+          flutter pub get
+
+      - name: Package
+        env:
+          ANDROID_NDK_HOME: ${{ steps.build-ndk.outputs.ndk-path }}
+        run: dart setup.dart ${{ matrix.platform }} ${{ env.IS_STABLE == 'true' && '--env stable' || '' }} ${{ matrix.android_arch && format('--arch {0}', matrix.android_arch) || '' }} -v
+
+      - name: Verify package outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d ./dist
+          find ./dist -type f | sort
+          test "$(find ./dist -type f | wc -l | tr -d ' ')" -gt 0
+          if [ "${{ matrix.platform }}" = windows ]; then
+            setup=$(find ./dist -name '*-windows-*-setup.exe' -print -quit)
+            archive=$(find ./dist -name '*-windows-*.zip' -print -quit)
+            test -n "$setup"
+            test -n "$archive"
+          fi
+
+      - name: Windows startup smoke
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zip = Get-ChildItem -Path '.\dist' -Recurse -Filter '*-windows-*.zip' | Select-Object -First 1
+          if (-not $zip) { throw 'Windows ZIP was not produced.' }
+          $root = Join-Path (Get-Location).Path 'smoke'
+          Expand-Archive -LiteralPath $zip.FullName -DestinationPath $root -Force
+          $exe = Join-Path $root 'FlClash.exe'
+          foreach ($required in @('FlClash.exe', 'FlClashCore.exe', 'manifest.json', 'protocol-helpers\naive.exe')) {
+            if (-not (Test-Path (Join-Path $root $required))) { throw "$required is missing" }
+          }
+          if (Test-Path (Join-Path $root 'protocol-helpers\juicity-client.exe')) {
+            throw 'Juicity must be native and must not ship as a helper executable.'
+          }
+          $process = Start-Process -FilePath $exe -WorkingDirectory $root -WindowStyle Hidden -PassThru
+          Start-Sleep -Seconds 12
+          $process.Refresh()
+          if ($process.HasExited -and $process.ExitCode -ne 0) {
+            throw "FlClash.exe exited during smoke with code $($process.ExitCode)"
+          }
+          Get-Process -Name FlClash,FlClashCore -ErrorAction SilentlyContinue |
+            Where-Object { $_.Path -and $_.Path.StartsWith($root, [StringComparison]::OrdinalIgnoreCase) } |
+            Stop-Process -Force -ErrorAction SilentlyContinue
+
+      - name: Generate checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd ./dist
+          out="SHA256SUMS-${{ matrix.platform }}.txt"
+          : > "$out"
+          find . -type f \( -name '*.exe' -o -name '*.zip' -o -name '*.apk' \) -print0 |
+            while IFS= read -r -d '' file; do
+              printf '%s  %s\n' "$(sha256sum "$file" | cut -d' ' -f1)" "$(basename "$file")" >> "$out"
+            done
+          test -s "$out"
+          cat "$out"
+
+      - name: Publish tagged packages
+        if: env.IS_TAG == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: WONDERX V1 ${{ inputs.release_tag }}
+          repository: worldneedme/ci-w4r7n
+          draft: true
+          prerelease: true
+          token: ${{ github.token }}
+          tag_name: ${{ inputs.release_tag }}
+          target_commitish: main
+          files: |
+            ./dist/**/*.apk
+            ./dist/**/*.exe
+            ./dist/**/*.zip
+            ./dist/SHA256SUMS-*.txt
+          fail_on_unmatched_files: false
+
+      - name: Upload manual-build artifact
+        if: env.IS_TAG != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifact-${{ matrix.platform }}-${{ matrix.arch }}
+          path: ./dist
+          if-no-files-found: error
+          overwrite: true
+
