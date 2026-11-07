@@ -192,6 +192,9 @@ jobs:
         with:
           targets: aarch64-linux-android
 
+      - name: Ensure Android target installed
+        run: rustup target add aarch64-linux-android
+
       - name: Setup Rust cache
         uses: Swatinem/rust-cache@v2
         with:
@@ -216,6 +219,7 @@ jobs:
           CARGO_PROFILE_RELEASE_STRIP: "true"
           RUSTFLAGS: "-Awarnings --remap-path-prefix=${{ github.workspace }}=/src --remap-path-prefix=${{ env.HOME }}/.cargo=/cargo"
         run: |
+          rustup target add aarch64-linux-android
           cd core
           mkdir -p dist
           cargo ndk -t arm64-v8a --platform 24 -o dist build -p wonderx-mobile --release --quiet
