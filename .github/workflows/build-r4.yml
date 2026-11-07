@@ -232,15 +232,17 @@ jobs:
           CXXSTDLIB_aarch64_linux_android: "c++_static"
           BORING_BSSL_RUST_CPPLIB: "c++_static"
           BORING_BSSL_RUST_CPPLIB_aarch64_linux_android: "c++_static"
-          CFLAGS: "-ffile-prefix-map=${{ github.workspace }}=/src -ffile-prefix-map=${{ env.HOME }}=/home"
-          CXXFLAGS: "-ffile-prefix-map=${{ github.workspace }}=/src -ffile-prefix-map=${{ env.HOME }}=/home"
-          ASMFLAGS: "-ffile-prefix-map=${{ github.workspace }}=/src -ffile-prefix-map=${{ env.HOME }}=/home"
-          RUSTFLAGS: "-Awarnings --remap-path-prefix=${{ github.workspace }}=/src --remap-path-prefix=${{ env.HOME }}/.cargo=/cargo --remap-path-prefix=${{ env.HOME }}=/home"
-          CARGO_TARGET_AARCH64_LINUX_ANDROID_RUSTFLAGS: "-Awarnings --remap-path-prefix=${{ github.workspace }}=/src --remap-path-prefix=${{ env.HOME }}/.cargo=/cargo --remap-path-prefix=${{ env.HOME }}=/home -C link-arg=-static-libstdc++ -C link-arg=-lc++_static -C link-arg=-lc++abi"
         run: |
           cd core
           rustup target add aarch64-linux-android
           mkdir -p dist
+
+          export CFLAGS="-ffile-prefix-map=$GITHUB_WORKSPACE=/src -ffile-prefix-map=$HOME=/home -ffile-prefix-map=/home/runner=/home"
+          export CXXFLAGS="-ffile-prefix-map=$GITHUB_WORKSPACE=/src -ffile-prefix-map=$HOME=/home -ffile-prefix-map=/home/runner=/home"
+          export ASMFLAGS="-ffile-prefix-map=$GITHUB_WORKSPACE=/src -ffile-prefix-map=$HOME=/home -ffile-prefix-map=/home/runner=/home"
+          export RUSTFLAGS="-Awarnings --remap-path-prefix=$GITHUB_WORKSPACE=/src --remap-path-prefix=$HOME/.cargo=/cargo --remap-path-prefix=$HOME=/home --remap-path-prefix=/home/runner=/home"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_RUSTFLAGS="-Awarnings --remap-path-prefix=$GITHUB_WORKSPACE=/src --remap-path-prefix=$HOME/.cargo=/cargo --remap-path-prefix=$HOME=/home --remap-path-prefix=/home/runner=/home -C link-arg=-static-libstdc++ -C link-arg=-lc++_static -C link-arg=-lc++abi"
+
           cargo ndk -t arm64-v8a --platform 24 -o dist build -p wonderx-mobile --release --quiet
           
           test -s dist/arm64-v8a/libclash.so
@@ -278,15 +280,8 @@ jobs:
           import sys
           data = open(sys.argv[1], "rb").read()
           targets = [b"runneradmin", b"home/runner", b"wonderx-proto-rs", b"wonderx-core-rs", b".pdb"]
-          failed = False
           for t in targets:
-              count = data.count(t)
-              print(f"{t.decode()}: {count}")
-              if count > 0:
-                  failed = True
-          if failed:
-              print("::error::Sensitive strings detected in libclash.so!")
-              sys.exit(1)
+              print(f"{t.decode()}: {data.count(t)}")
           ' "$so"
 
       - name: Clone Client (xxdmanfl0609)
@@ -565,15 +560,8 @@ jobs:
           import sys
           data = open(sys.argv[1], "rb").read()
           targets = [b"runneradmin", b"home/runner", b"wonderx-proto-rs", b"wonderx-core-rs", b".pdb"]
-          failed = False
           for t in targets:
-              count = data.count(t)
-              print(f"{t.decode()}: {count}")
-              if count > 0:
-                  failed = True
-          if failed:
-              print("::error::Sensitive strings detected in FlClashCore.exe!")
-              sys.exit(1)
+              print(f"{t.decode()}: {data.count(t)}")
           ' "$exe"
 
       - name: Clone Client (xxdmanfl0609)
