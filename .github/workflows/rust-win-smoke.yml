@@ -24,6 +24,10 @@ on:
         required: true
         default: 'true'
 
+env:
+  PYTHONIOENCODING: utf-8
+  PYTHONUNBUFFERED: '1'
+
 permissions:
   contents: read
   actions: read

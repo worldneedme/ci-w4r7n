@@ -395,5 +395,7 @@ async def main():
 
 
 if __name__ == "__main__":
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
     sys.exit(asyncio.run(main()))
