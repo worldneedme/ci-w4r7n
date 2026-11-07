@@ -6,7 +6,7 @@ on:
       tag:
         description: 'Release tag'
         required: true
-        default: 'wonderx-v1-0.9.3-pure-rust-test-20261107-r5'
+        default: 'wonderx-v1-0.9.3-pure-rust-test-20261107-r6'
       core_commit:
         description: 'wonderx-core-rs commit'
         required: true
@@ -226,7 +226,17 @@ jobs:
           ANDROID_NDK_ROOT: ${{ steps.build-ndk.outputs.ndk-path }}
           CARGO_PROFILE_RELEASE_DEBUG: "false"
           CARGO_PROFILE_RELEASE_STRIP: "true"
-          RUSTFLAGS: "-Awarnings --remap-path-prefix=${{ github.workspace }}=/src --remap-path-prefix=${{ env.HOME }}/.cargo=/cargo"
+          ANDROID_STL: "c++_static"
+          CMAKE_ANDROID_STL_TYPE: "c++_static"
+          CXXSTDLIB: "c++_static"
+          CXXSTDLIB_aarch64_linux_android: "c++_static"
+          BORING_BSSL_RUST_CPPLIB: "c++_static"
+          BORING_BSSL_RUST_CPPLIB_aarch64_linux_android: "c++_static"
+          CFLAGS: "-ffile-prefix-map=${{ github.workspace }}=/src -ffile-prefix-map=${{ env.HOME }}=/home"
+          CXXFLAGS: "-ffile-prefix-map=${{ github.workspace }}=/src -ffile-prefix-map=${{ env.HOME }}=/home"
+          ASMFLAGS: "-ffile-prefix-map=${{ github.workspace }}=/src -ffile-prefix-map=${{ env.HOME }}=/home"
+          RUSTFLAGS: "-Awarnings --remap-path-prefix=${{ github.workspace }}=/src --remap-path-prefix=${{ env.HOME }}/.cargo=/cargo --remap-path-prefix=${{ env.HOME }}=/home"
+          CARGO_TARGET_AARCH64_LINUX_ANDROID_RUSTFLAGS: "-Awarnings --remap-path-prefix=${{ github.workspace }}=/src --remap-path-prefix=${{ env.HOME }}/.cargo=/cargo --remap-path-prefix=${{ env.HOME }}=/home -C link-arg=-static-libstdc++ -C link-arg=-lc++_static -C link-arg=-lc++abi"
         run: |
           cd core
           rustup target add aarch64-linux-android
@@ -242,6 +252,23 @@ jobs:
           ls -lh dist/arm64-v8a/libclash.so
           sha256sum dist/arm64-v8a/libclash.so
 
+          echo "=== NEEDED dependencies of libclash.so ==="
+          readelf -d dist/arm64-v8a/libclash.so | grep NEEDED || true
+
+          if readelf -d dist/arm64-v8a/libclash.so | grep -q 'libc++_shared.so'; then
+            echo "::warning::libclash.so still has dynamic libc++_shared.so dependency! Copying fallback libc++_shared.so from NDK..."
+            SHARED_CPP=$(find "$ANDROID_NDK_HOME" -name "libc++_shared.so" | grep "aarch64" | head -1)
+            if [ -n "$SHARED_CPP" ] && [ -f "$SHARED_CPP" ]; then
+              echo "Found libc++_shared.so at $SHARED_CPP, copying to dist/arm64-v8a/"
+              cp "$SHARED_CPP" dist/arm64-v8a/
+            else
+              echo "::error::Could not find libc++_shared.so in NDK!"
+              exit 1
+            fi
+          else
+            echo "::notice::SUCCESS: libclash.so statically linked libc++, no libc++_shared.so dependency!"
+          fi
+
       - name: Leak prevention strings check (libclash.so)
         shell: bash
         run: |
@@ -250,9 +277,16 @@ jobs:
           python3 -c '
           import sys
           data = open(sys.argv[1], "rb").read()
-          targets = [b"runneradmin", b"wonderx-proto-rs", b"wonderx-core-rs", b".pdb"]
+          targets = [b"runneradmin", b"home/runner", b"wonderx-proto-rs", b"wonderx-core-rs", b".pdb"]
+          failed = False
           for t in targets:
-              print(f"{t.decode()}: {data.count(t)}")
+              count = data.count(t)
+              print(f"{t.decode()}: {count}")
+              if count > 0:
+                  failed = True
+          if failed:
+              print("::error::Sensitive strings detected in libclash.so!")
+              sys.exit(1)
           ' "$so"
 
       - name: Clone Client (xxdmanfl0609)
@@ -263,11 +297,16 @@ jobs:
           git checkout ${{ inputs.client_ref }}
           git submodule update --init --recursive
 
-      - name: Replace libclash.so with new r4 build
+      - name: Replace libclash.so with new r6 build
         shell: bash
         run: |
           cp core/dist/arm64-v8a/libclash.so client/android/core/src/main/jniLibs/arm64-v8a/libclash.so
           sha256sum client/android/core/src/main/jniLibs/arm64-v8a/libclash.so
+          if [ -f core/dist/arm64-v8a/libc++_shared.so ]; then
+            echo "Copying fallback libc++_shared.so to client jniLibs..."
+            cp core/dist/arm64-v8a/libc++_shared.so client/android/core/src/main/jniLibs/arm64-v8a/libc++_shared.so
+            ls -lh client/android/core/src/main/jniLibs/arm64-v8a/libc++_shared.so
+          fi
 
       - name: Download Naive helper for Android
         shell: bash
@@ -319,7 +358,7 @@ jobs:
           flutter pub get
           dart setup.dart android --arch arm64 -v
 
-      - name: Verify package outputs & Validate Cert Fingerprint
+      - name: Verify package outputs, Cert Fingerprint & Dependency Whitelist Check
         id: cert
         working-directory: client
         shell: bash
@@ -348,9 +387,74 @@ jobs:
           fi
           echo "Certificate fingerprint matched officially!"
 
+          echo "=== APK Native Library Dependency Check ==="
+          mkdir -p /tmp/apk_inspect
+          unzip -q -o "$apk_file" -d /tmp/apk_inspect
+          
+          python3 - << 'EOF'
+          import os, subprocess, re, sys
+
+          lib_dir = "/tmp/apk_inspect/lib/arm64-v8a"
+          if not os.path.isdir(lib_dir):
+              print("::error::No lib/arm64-v8a directory found in APK!")
+              sys.exit(1)
+
+          apk_libs = set(os.listdir(lib_dir))
+          print(f"Libraries inside APK ({lib_dir}): {sorted(apk_libs)}")
+
+          libclash = os.path.join(lib_dir, "libclash.so")
+          if not os.path.isfile(libclash):
+              print("::error::libclash.so not found inside APK!")
+              sys.exit(1)
+
+          output = subprocess.check_output(["readelf", "-d", libclash], text=True)
+          needed = []
+          for line in output.splitlines():
+              m = re.search(r"\(NEEDED\)\s+Shared library:\s+\[(.*?)\]", line)
+              if m:
+                  needed.append(m.group(1))
+
+          print(f"libclash.so NEEDED libraries: {needed}")
+
+          SYSTEM_WHITELIST = {
+              "libc.so",
+              "libm.so",
+              "libdl.so",
+              "liblog.so",
+              "libandroid.so",
+              "libz.so",
+              "libjnigraphics.so",
+              "libOpenSLES.so",
+              "libEGL.so",
+              "libGLESv1_CM.so",
+              "libGLESv2.so",
+              "libGLESv3.so",
+              "libvulkan.so",
+              "libaaudio.so",
+              "libmediandk.so",
+          }
+
+          unsatisfied = []
+          for lib in needed:
+              if lib in SYSTEM_WHITELIST:
+                  print(f"  [PASS - system whitelist] {lib}")
+              elif lib in apk_libs:
+                  print(f"  [PASS - packaged in APK] {lib}")
+              else:
+                  print(f"  [FAIL - missing dependency!] {lib}")
+                  unsatisfied.append(lib)
+
+          if unsatisfied:
+              print(f"::error::libclash.so has unsatisfied dependencies in APK: {unsatisfied}")
+              sys.exit(1)
+
+          print("All libclash.so dependencies are fully satisfied!")
+          EOF
+
           mkdir -p ../dist_out
           cp "$apk_file" ../dist_out/
           cp ../core/dist/arm64-v8a/libclash.so ../dist_out/
+          cp ../core/dist/arm64-v8a/libc++_shared.so ../dist_out/ 2>/dev/null || true
 
       - name: Upload Android Output
         uses: actions/upload-artifact@v4
@@ -460,9 +564,16 @@ jobs:
           python -c '
           import sys
           data = open(sys.argv[1], "rb").read()
-          targets = [b"runneradmin", b"wonderx-proto-rs", b"wonderx-core-rs", b".pdb"]
+          targets = [b"runneradmin", b"home/runner", b"wonderx-proto-rs", b"wonderx-core-rs", b".pdb"]
+          failed = False
           for t in targets:
-              print(f"{t.decode()}: {data.count(t)}")
+              count = data.count(t)
+              print(f"{t.decode()}: {count}")
+              if count > 0:
+                  failed = True
+          if failed:
+              print("::error::Sensitive strings detected in FlClashCore.exe!")
+              sys.exit(1)
           ' "$exe"
 
       - name: Clone Client (xxdmanfl0609)
@@ -531,7 +642,7 @@ jobs:
           path: win_out/*
 
   publish-draft-release:
-    name: Publish r5 Draft Release
+    name: Publish r6 Draft Release
     needs: [build-and-package-android, build-and-package-windows]
     runs-on: ubuntu-latest
     steps:
