@@ -1,0 +1,399 @@
+#!/usr/bin/env python3
+"""WONDERX pure-Rust FlClashCore Windows smoke.
+
+Acts as the Flutter host: owns a named pipe server, launches FlClashCore.exe
+<pipe>, speaks the length-prefixed (u32 LE) JSON MethodCall protocol, and runs
+the same call sequence the UI uses on "start":
+  core.init -> profile.base -> config.setup(base{path,overlay}) -> proxy.list
+  -> listener.start
+All servers are dummies (127.0.0.1); no real credentials.
+
+Usage: python rust_win_smoke.py --core FlClashCore.exe --app-dir <extracted zip>
+       [--loops 5] [--out smoke-out]
+Exit 0 only if every gated (user-like) iteration passed.
+"""
+import argparse
+import asyncio
+import json
+import os
+import shutil
+import struct
+import subprocess
+import sys
+import tempfile
+import time
+import uuid
+
+UUID = "11111111-2222-3333-4444-555555555555"
+PBK = "Z84J2IelR9ch3k8VtlVhhs5ycBUlXA7wHBWcBrjqnAw"  # dummy x25519 pubkey shape
+
+PROXIES = [
+    '{ name: "🇭🇰 香港 SS", type: ss, server: 127.0.0.1, port: 20001, cipher: aes-128-gcm, password: dummy, udp: true }',
+    '{ name: "🇯🇵 日本 VMess WS", type: vmess, server: 127.0.0.1, port: 20002, uuid: ' + UUID + ', alterId: 0, cipher: auto, udp: true, tls: true, skip-cert-verify: false, servername: a.example.com, network: ws, ws-opts: { path: /ws, headers: { Host: a.example.com } } }',
+    '{ name: "🇺🇸 美国 VLESS WS TLS", type: vless, server: 127.0.0.1, port: 20003, uuid: ' + UUID + ', udp: true, tfo: true, tls: true, skip-cert-verify: false, client-fingerprint: chrome, servername: b.example.com, network: ws, ws-opts: { path: /vl, headers: { Host: b.example.com } } }',
+    '{ name: "🇸🇬 新加坡 Reality", type: vless, server: 127.0.0.1, port: 20004, uuid: ' + UUID + ', udp: true, tfo: true, flow: xtls-rprx-vision, tls: true, skip-cert-verify: false, client-fingerprint: chrome, servername: www.microsoft.com, reality-opts: { public-key: ' + PBK + ', short-id: "" } }',
+    '{ name: "🇸🇬 新加坡 XHTTP", type: vless, server: 127.0.0.1, port: 20005, uuid: ' + UUID + ', udp: true, tfo: true, tls: true, skip-cert-verify: false, client-fingerprint: chrome, servername: www.apple.com, reality-opts: { public-key: ' + PBK + ', short-id: "" }, network: xhttp, xhttp-opts: { path: /xh, host: www.apple.com, mode: auto } }',
+    '{ name: "🇹🇼 台湾 Trojan", type: trojan, server: 127.0.0.1, port: 20006, password: dummy, udp: true, sni: c.example.com, skip-cert-verify: false }',
+    '{ name: "🇰🇷 韩国 TUIC", type: tuic, server: 127.0.0.1, port: 20007, uuid: ' + UUID + ', password: dummy, alpn: [h3], disable-sni: false, reduce-rtt: false, udp-relay-mode: native, congestion-controller: bbr, skip-cert-verify: false, sni: d.example.com }',
+    '{ name: "🇩🇪 德国 AnyTLS", type: anytls, server: 127.0.0.1, port: 20008, password: dummy, skip-cert-verify: false, udp: true, sni: e.example.com, client-fingerprint: chrome }',
+    '{ name: "🇬🇧 英国 Juicity", type: juicity, server: 127.0.0.1, port: 20009, uuid: ' + UUID + ', password: dummy, sni: f.example.com, skip-cert-verify: false, alpn: [h3], congestion-controller: bbr, udp: true }',
+    '{ name: "🇫🇷 法国 Naive", type: naive, server: 127.0.0.1, port: 20010, username: ' + UUID + ', password: dummy, client-fingerprint: chrome, udp: false, alpn: [h2], sni: g.example.com, skip-cert-verify: false }',
+    '{ name: "🇳🇱 荷兰 Hy2", type: hysteria2, server: 127.0.0.1, password: dummy, skip-cert-verify: false, sni: h.example.com, udp: true, port: 20011, ports: 20011-20020, mport: 20011-20020 }',
+    '{ name: "🇨🇦 加拿大 Mieru", type: mieru, server: 127.0.0.1, transport: TCP, udp: true, username: ' + UUID + ', password: dummy, multiplexing: MULTIPLEXING_LOW, port: 20012 }',
+    '{ name: "🇦🇺 澳洲 Hysteria1", type: hysteria, server: 127.0.0.1, port: 20013, udp: true, skip-cert-verify: false, sni: i.example.com, auth_str: dummy, up: 100, down: 100, protocol: udp }',
+    "{ name: \"🇮🇳 印度 VLESS 字符串端口\", type: vless, server: 127.0.0.1, port: '20014', uuid: " + UUID + ", udp: true, tls: true, servername: j.example.com, network: ws, ws-opts: { path: /s } }",
+]
+
+
+def node_name(flow):
+    return flow.split('name: "', 1)[1].split('"', 1)[0]
+
+
+NODE_NAMES = [node_name(p) for p in PROXIES]
+
+RULES_COMMON = [
+    "IP-CIDR,1.1.1.1/32,WONDERX,no-resolve",
+    "DOMAIN-SUFFIX,services.googleapis.cn,WONDERX",
+    "DOMAIN,safebrowsing.urlsec.qq.com,DIRECT",
+    "DOMAIN-SUFFIX,apple.com,DIRECT",
+    "DOMAIN-KEYWORD,-cn,DIRECT",
+    "IP-CIDR,192.168.0.0/16,DIRECT",
+    "IP-CIDR6,fe80::/10,DIRECT",
+]
+
+
+def build_subscription(proxies=PROXIES, geoip=True):
+    names = [node_name(p) for p in proxies]
+    q = lambda xs: "[" + ", ".join('"%s"' % x for x in xs) + "]"
+    rules = list(RULES_COMMON)
+    if geoip:
+        rules.append("GEOIP,CN,DIRECT")
+    rules.append("MATCH,WONDERX")
+    lines = [
+        "mixed-port: 7890", "allow-lan: true", "bind-address: '*'", "mode: rule",
+        "log-level: info", "external-controller: '127.0.0.1:9090'",
+        "dns:", "    enable: true", "    ipv6: false",
+        "    default-nameserver: [223.5.5.5, 119.29.29.29]",
+        "    enhanced-mode: fake-ip", "    fake-ip-range: 198.18.0.1/16",
+        "    use-hosts: true", "    respect-rules: true",
+        "    proxy-server-nameserver: [223.5.5.5, 119.29.29.29]",
+        "    nameserver: ['https://1.1.1.1/dns-query', 'https://dns.google/dns-query']",
+        "    fallback: ['https://1.1.1.1/dns-query', 'https://dns.google/dns-query']",
+        "    fallback-filter: { geoip: true, geoip-code: CN, geosite: [gfw], ipcidr: [240.0.0.0/4], domain: ['+.google.com'] }",
+        "proxies:",
+    ]
+    lines += ["    - " + p for p in proxies]
+    lines += [
+        "proxy-groups:",
+        "    - { name: WONDERX, type: select, proxies: " + q(["自动选择", "故障转移"] + names) + " }",
+        "    - { name: 自动选择, type: url-test, proxies: " + q(names) + ", url: 'http://www.gstatic.com/generate_204', interval: 300, tolerance: 50, lazy: false }",
+        "    - { name: 故障转移, type: fallback, proxies: " + q(names) + ", url: 'http://www.gstatic.com/generate_204', interval: 300, lazy: false }",
+        "rules:",
+    ]
+    lines += ["    - " + r for r in rules]
+    return "\n".join(lines) + "\n"
+
+
+def dart_like_overlay(base_config, home):
+    """Mirror lib/common/task.dart _makeRealProfileTask on profile.base config."""
+    raw = dict(base_config or {})
+    raw.pop("rule", None)
+    raw.update({
+        "external-controller": "", "secret": "", "external-controller-tls": "",
+        "external-controller-unix": "", "external-controller-pipe": "",
+        "external-ui": "", "interface-name": "", "external-ui-url": "",
+    })
+    raw.setdefault("unified-delay", True)
+    raw.setdefault("tcp-concurrent", True)
+    raw.setdefault("ipv6", False)
+    raw.update({
+        "log-level": "error", "keep-alive-interval": 30, "keep-alive-idle": 15,
+        "disable-keep-alive": False, "routing-mark": 0, "mixed-port": 7890,
+        "port": 0, "socks-port": 0, "redir-port": 0, "tproxy-port": 0,
+        "find-process-mode": "off", "allow-lan": False, "authentication": [],
+        "skip-auth-prefixes": [], "mode": "rule",
+    })
+    tun = dict(raw.get("tun") or {})
+    tun.update({"dns-hijack": ["any:53"], "enable": False, "device": "WONDERX",
+                "stack": "mixed", "auto-detect-interface": True})
+    raw["tun"] = tun
+    raw["geo-auto-update"] = False
+    raw["geo-update-interval"] = 24
+    raw["mitm"] = {"enable": False, "decrypt-tls": False, "ca-fingerprint": "",
+                   "url-rewrite": [], "header-rewrite": [], "body-rewrite": [],
+                   "map-local": [], "limits": {}}
+    raw.setdefault("profile", {})
+    raw["profile"]["store-selected"] = False
+    raw["geox-url"] = {
+        "mmdb": "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.metadb",
+        "asn": "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/GeoLite2-ASN.mmdb",
+        "geoip": "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.dat",
+        "geosite": "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat",
+    }
+    raw["global-ua"] = "FlClash X/v0.9.3 Platform/windows"
+    raw.setdefault("hosts", {})
+    raw["rules"] = []
+    # Flutter encodes with a YAML encoder; JSON is valid YAML 1.2 flow.
+    return json.dumps(raw, ensure_ascii=False, indent=1)
+
+
+class Host(asyncio.Protocol):
+    def __init__(self):
+        self.buf = b""
+        self.waiters = {}
+        self.events = 0
+        self.connected = asyncio.get_event_loop().create_future()
+        self.transport = None
+
+    def connection_made(self, transport):
+        self.transport = transport
+        if not self.connected.done():
+            self.connected.set_result(True)
+
+    def data_received(self, data):
+        self.buf += data
+        while len(self.buf) >= 4:
+            n = struct.unpack("<I", self.buf[:4])[0]
+            if len(self.buf) < 4 + n:
+                break
+            payload, self.buf = self.buf[4:4 + n], self.buf[4 + n:]
+            try:
+                msg = json.loads(payload)
+            except Exception as e:  # noqa
+                print("  !! undecodable frame:", e, payload[:200])
+                continue
+            if msg.get("method") == "message":
+                self.events += 1
+                continue
+            fut = self.waiters.pop(msg.get("id"), None)
+            if fut and not fut.done():
+                fut.set_result(msg)
+
+    def connection_lost(self, exc):
+        for f in self.waiters.values():
+            if not f.done():
+                f.set_exception(ConnectionError("pipe closed: %s" % exc))
+
+    async def call(self, method, args=None, timeout=60):
+        cid = uuid.uuid4().hex
+        fut = asyncio.get_event_loop().create_future()
+        self.waiters[cid] = fut
+        body = json.dumps({"id": cid, "method": method, "arguments": args},
+                          ensure_ascii=False).encode()
+        self.transport.write(struct.pack("<I", len(body)) + body)
+        t0 = time.monotonic()
+        try:
+            resp = await asyncio.wait_for(fut, timeout)
+        except asyncio.TimeoutError:
+            self.waiters.pop(cid, None)
+            return {"_timeout": True}, time.monotonic() - t0
+        if resp.get("file"):
+            try:
+                with open(resp["file"], encoding="utf-8") as fh:
+                    resp["result"] = json.load(fh)
+            except Exception as e:  # noqa
+                resp["result"] = {"_spill_error": str(e)}
+        return resp, time.monotonic() - t0
+
+
+def short(resp, n=400):
+    s = json.dumps(resp, ensure_ascii=False)
+    return s if len(s) <= n else s[:n] + "..."
+
+
+def summarize_proxies(resp):
+    res = resp.get("result") or {}
+    proxies = res.get("proxies") or {}
+    leaves = [n for n in NODE_NAMES if n in proxies]
+    missing = [n for n in NODE_NAMES if n not in proxies]
+    groups = res.get("all") or []
+    wx = proxies.get("WONDERX") or {}
+    return leaves, missing, groups, wx
+
+
+async def session(core, home, cwd, env, label, variants, setup_timeout):
+    """One core process; runs each variant's config.setup + proxy.list."""
+    loop = asyncio.get_event_loop()
+    pipe = r"\\.\pipe\wxsmoke_%s" % uuid.uuid4().hex[:12]
+    host = Host()
+    servers = await loop.start_serving_pipe(lambda: host, pipe)
+    log_path = os.path.join(home, "core-stderr.log")
+    logf = open(log_path, "wb")
+    proc = subprocess.Popen([core, pipe], cwd=cwd, env=env, stdout=logf, stderr=logf)
+    results = {}
+    try:
+        try:
+            await asyncio.wait_for(host.connected, 15)
+        except asyncio.TimeoutError:
+            print("  [%s] FAIL core never connected to pipe (exit=%s)" % (label, proc.poll()))
+            return {"connect": False}
+        r, dt = await host.call("core.init", {"home-dir": home, "version": 1}, 20)
+        print("  [%s] core.init %.2fs -> %s" % (label, dt, short(r)))
+        for vname, prepare in variants:
+            args = prepare(host)
+            if asyncio.iscoroutine(args):
+                args = await args
+            r, dt = await host.call("config.setup", args, setup_timeout)
+            err = r.get("error") if isinstance(r, dict) else None
+            print("  [%s/%s] config.setup %.2fs -> %s" % (label, vname, dt, short(r, 900)))
+            pl, _ = await host.call("proxy.list", None, 20)
+            leaves, missing, groups, wx = summarize_proxies(pl)
+            print("  [%s/%s] proxy.list: %d/%d nodes, groups=%s, WONDERX.all=%d now=%r"
+                  % (label, vname, len(leaves), len(NODE_NAMES), groups,
+                     len(wx.get("all") or []), wx.get("now")))
+            if missing:
+                print("  [%s/%s] missing nodes: %s" % (label, vname, missing))
+            results[vname] = {"timeout": bool(r.get("_timeout")), "error": err,
+                              "secs": round(dt, 2), "nodes": len(leaves),
+                              "missing": missing, "groups": groups}
+        r, dt = await host.call("listener.start", None, 20)
+        print("  [%s] listener.start %.2fs -> %s" % (label, dt, short(r)))
+        results["listener"] = r.get("error")
+        results["events"] = host.events
+        return results
+    finally:
+        try:
+            host.transport and host.transport.close()
+        except Exception:
+            pass
+        for s in servers:
+            s.close()
+        try:
+            proc.wait(5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        logf.close()
+        with open(log_path, "rb") as fh:
+            tail = fh.read()[-6000:].decode("utf-8", "replace")
+        print("  [%s] core exit=%s stderr tail:\n%s" % (label, proc.poll(),
+              "\n".join("      | " + l for l in tail.splitlines()[-60:])))
+
+
+def make_home(root, name, app_dir, sub_yaml):
+    home = os.path.join(root, name)
+    shutil.rmtree(home, ignore_errors=True)
+    os.makedirs(os.path.join(home, "profiles"), exist_ok=True)
+    # Flutter initGeo copies these four assets into the home dir.
+    assets = os.path.join(app_dir, "data", "flutter_assets", "assets", "data")
+    copied = []
+    if os.path.isdir(assets):
+        for f in os.listdir(assets):
+            shutil.copy(os.path.join(assets, f), os.path.join(home, f))
+            copied.append(f)
+    prof = os.path.join(home, "profiles", "1.yaml")
+    with open(prof, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(sub_yaml)
+    return home, prof, copied
+
+
+def flutter_variants(prof, home, include_nobase=True):
+    async def with_base(host):
+        pb, dt = await host.call("profile.base", {"path": prof}, 20)
+        cfg = (pb.get("result") or {}).get("config")
+        print("    profile.base %.2fs config-type=%s keys=%s err=%s" % (
+            dt, type(cfg).__name__, sorted(cfg.keys())[:12] if isinstance(cfg, dict) else None,
+            pb.get("error")))
+        return {"base": {"path": prof, "overlay": dart_like_overlay(cfg, home)},
+                "selected-map": {"WONDERX": NODE_NAMES[0]},
+                "options": {"test-url": "https://www.gstatic.com/generate_204",
+                            "skip-cert-verify": False, "delay-test-timeout": 5000,
+                            "mitm-capture": False}}
+    v = [("base+overlay", with_base),
+         ("base-no-overlay", lambda h: {"base": {"path": prof, "overlay": ""},
+                                        "selected-map": {}, "options": {}})]
+    if include_nobase:
+        def nobase(h):
+            shutil.copy(prof, os.path.join(home, "config.yaml"))
+            return {"selected-map": {}, "options": {}}
+        v.append(("no-base(config.yaml)", nobase))
+    return v
+
+
+def user_like_env():
+    env = dict(os.environ)
+    for k in ("HOME", "XDG_CONFIG_HOME"):
+        env.pop(k, None)
+    env["RUST_LOG"] = "info"
+    return env
+
+
+def blackhole_github():
+    hosts = r"C:\Windows\System32\drivers\etc\hosts"
+    names = ["github.com", "api.github.com", "objects.githubusercontent.com",
+             "raw.githubusercontent.com", "release-assets.githubusercontent.com",
+             "github-releases.githubusercontent.com", "codeload.github.com",
+             "cdn.jsdelivr.net", "fastly.jsdelivr.net", "testingcf.jsdelivr.net"]
+    try:
+        shutil.copy(hosts, hosts + ".wxsmoke.bak")
+        with open(hosts, "a", encoding="ascii") as fh:
+            fh.write("\n" + "".join("0.0.0.0 %s\n" % n for n in names))
+        subprocess.run(["ipconfig", "/flushdns"], capture_output=True)
+        print("hosts: github/jsdelivr blackholed (emulates CN network)")
+    except Exception as e:  # noqa
+        print("hosts: could not blackhole:", e)
+
+
+async def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--core", required=True)
+    ap.add_argument("--app-dir", required=True)
+    ap.add_argument("--loops", type=int, default=5)
+    ap.add_argument("--out", default="smoke-out")
+    ap.add_argument("--setup-timeout", type=int, default=90)
+    ap.add_argument("--diagnostics", action="store_true")
+    a = ap.parse_args()
+    core = os.path.abspath(a.core)
+    app_dir = os.path.abspath(a.app_dir)
+    root = os.path.abspath(a.out)
+    os.makedirs(root, exist_ok=True)
+    sub = build_subscription()
+    with open(os.path.join(root, "subscription.yaml"), "w", encoding="utf-8") as fh:
+        fh.write(sub)
+    print("core:", core, "HOME env on runner:", os.environ.get("HOME"),
+          "USERPROFILE:", os.environ.get("USERPROFILE"))
+
+    if a.diagnostics:
+        print("\n===== DIAG A: runner default env (HOME as runner sets it), network open =====")
+        home, prof, copied = make_home(root, "diagA", app_dir, sub)
+        print("  geo assets copied into home:", copied)
+        await session(core, home, home, dict(os.environ, RUST_LOG="info"), "diagA",
+                      flutter_variants(prof, home), a.setup_timeout)
+
+    blackhole_github()
+
+    if a.diagnostics:
+        print("\n===== DIAG B: per-protocol isolation (one node, no GEOIP rule) =====")
+        for i, p in enumerate(PROXIES):
+            home, prof, _ = make_home(root, "iso%02d" % i, app_dir,
+                                      build_subscription([p], geoip=False))
+            r = await session(core, home, home, user_like_env(), "iso:" + NODE_NAMES[i],
+                              [("base-no-overlay", lambda h, prof=prof: {"base": {"path": prof, "overlay": ""}, "selected-map": {}, "options": {}})],
+                              a.setup_timeout)
+        print("\n===== DIAG C: full sub WITHOUT GEOIP rule, user-like env, CN network =====")
+        home, prof, _ = make_home(root, "diagC", app_dir, build_subscription(geoip=False))
+        await session(core, home, app_dir, user_like_env(), "diagC",
+                      flutter_variants(prof, home, False), a.setup_timeout)
+
+    print("\n===== GATE: %d consecutive user-like runs (no HOME, cwd=app dir, CN network) =====" % a.loops)
+    verdicts = []
+    for i in range(1, a.loops + 1):
+        home, prof, _ = make_home(root, "run%d" % i, app_dir, sub)
+        print("\n--- run %d ---" % i)
+        r = await session(core, home, app_dir, user_like_env(), "run%d" % i,
+                          flutter_variants(prof, home, False), a.setup_timeout)
+        v = r.get("base+overlay") or {}
+        ok = (r.get("connect", True) and not v.get("timeout") and not v.get("error")
+              and v.get("nodes", 0) >= 1 and "WONDERX" in (v.get("groups") or []))
+        verdicts.append(ok)
+        print("RUN %d: %s  (setup %.2fs, nodes=%s, error=%s)" % (
+            i, "PASS" if ok else "FAIL", v.get("secs", -1), v.get("nodes"),
+            (v.get("error") or {}).get("message") if v.get("error") else ("TIMEOUT" if v.get("timeout") else None)))
+    print("\nSUMMARY:", " ".join("run%d=%s" % (i + 1, "PASS" if ok else "FAIL")
+                                for i, ok in enumerate(verdicts)))
+    print("GATE:", "PASS" if all(verdicts) and len(verdicts) >= 5 else "FAIL")
+    return 0 if all(verdicts) and len(verdicts) >= 5 else 1
+
+
+if __name__ == "__main__":
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+    sys.exit(asyncio.run(main()))

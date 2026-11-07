@@ -1,0 +1,127 @@
+name: Rust Windows Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Draft release tag to test (ZIP asset WONDERX-V1-0.9.3-windows-amd64.zip)'
+        required: true
+        default: 'wonderx-v1-0.9.3-pure-rust-test-20261107-r7'
+      run_id:
+        description: 'Fallback: build run id whose windows-output artifact holds the ZIP'
+        required: false
+        default: '42375789422'
+      core_artifact_run:
+        description: 'Optional: run id of a smoke-build artifact (core-under-test) whose FlClashCore.exe replaces the release core'
+        required: false
+        default: ''
+      loops:
+        description: 'Consecutive gated runs (must all pass)'
+        required: true
+        default: '5'
+      diagnostics:
+        description: 'Also run diagnostics (runner env, per-protocol isolation, no-GEOIP)'
+        required: true
+        default: 'true'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  smoke:
+    runs-on: windows-2022
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch release ZIP
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          RUN_ID: ${{ inputs.run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p dl
+          if gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p 'WONDERX-V1-0.9.3-windows-amd64.zip' -p 'FlClashCore-standalone.exe' -D dl 2>dl/err.txt; then
+            echo "downloaded from release $TAG"
+          else
+            echo "release download failed: $(head -c 300 dl/err.txt); trying run artifact $RUN_ID"
+            gh run download "$RUN_ID" -R "$GITHUB_REPOSITORY" -n windows-output -D dl
+          fi
+          ls -la dl
+          sha256sum dl/*.zip dl/*.exe || true
+
+      - name: Fetch core-under-test (optional)
+        if: ${{ inputs.core_artifact_run != '' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download "${{ inputs.core_artifact_run }}" -R "$GITHUB_REPOSITORY" -n core-under-test -D cut
+          ls -la cut; sha256sum cut/FlClashCore.exe
+
+      - name: Extract
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem dl -Recurse -Filter '*windows-amd64.zip' | Select-Object -First 1
+          Expand-Archive -LiteralPath $zip.FullName -DestinationPath app -Force
+          if (Test-Path cut/FlClashCore.exe) { Copy-Item cut/FlClashCore.exe app/FlClashCore.exe -Force; "core replaced with core-under-test" }
+          Get-ChildItem app | Select-Object Name, Length | Format-Table -AutoSize
+          Get-FileHash app/FlClashCore.exe -Algorithm SHA256 | Format-List
+          Get-ChildItem app/data/flutter_assets/assets/data -ErrorAction SilentlyContinue | Select-Object Name, Length | Format-Table -AutoSize
+          "HOME=$env:HOME XDG_CONFIG_HOME=$env:XDG_CONFIG_HOME"
+
+      - name: GUI launch (FlClash.exe, 30s) and collect logs
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $root = (Resolve-Path app).Path
+          $before = Get-Date
+          $p = Start-Process -FilePath (Join-Path $root 'FlClash.exe') -WorkingDirectory $root -PassThru
+          Start-Sleep -Seconds 30
+          Get-Process -Name FlClash,FlClashCore -ErrorAction SilentlyContinue | Select-Object Name, Id, Path | Format-Table -AutoSize
+          Get-Process -Name FlClash,FlClashCore -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 2
+          New-Item -ItemType Directory -Force gui-logs | Out-Null
+          foreach ($base in @($env:APPDATA, $env:LOCALAPPDATA, $root)) {
+            Get-ChildItem $base -Recurse -Depth 4 -File -ErrorAction SilentlyContinue |
+              Where-Object { $_.LastWriteTime -gt $before -and $_.Length -lt 5MB -and $_.FullName -notmatch '\\(Microsoft|Packages|Temp)\\' } |
+              ForEach-Object {
+                "== $($_.FullName) ($($_.Length) bytes)"
+                if ($_.Extension -in '.log','.txt','.json','.yaml') {
+                  $dest = Join-Path 'gui-logs' ($_.FullName -replace '[:\\ ]','_')
+                  Copy-Item $_.FullName $dest -ErrorAction SilentlyContinue
+                  if ($_.Extension -eq '.log') { Get-Content $_.FullName -Tail 40 -ErrorAction SilentlyContinue }
+                }
+              }
+          }
+          Get-ChildItem -Recurse -Filter meow -Directory -Path $root, $env:USERPROFILE -Depth 3 -ErrorAction SilentlyContinue | ForEach-Object { "meow dir created: $($_.FullName)"; Get-ChildItem $_.FullName }
+
+      - name: IPC smoke (gated ${{ inputs.loops }}x)
+        shell: pwsh
+        run: |
+          python --version
+          $diag = @()
+          if ('${{ inputs.diagnostics }}' -eq 'true') { $diag = @('--diagnostics') }
+          python .github/smoke/rust_win_smoke.py --core app/FlClashCore.exe --app-dir app --loops ${{ inputs.loops }} --out smoke-out @diag
+          exit $LASTEXITCODE
+
+      - name: Restore hosts
+        if: always()
+        shell: pwsh
+        run: |
+          $h = 'C:\Windows\System32\drivers\etc\hosts'
+          if (Test-Path "$h.wxsmoke.bak") { Copy-Item "$h.wxsmoke.bak" $h -Force; ipconfig /flushdns | Out-Null; 'hosts restored' }
+
+      - name: Upload smoke output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-win-smoke-${{ github.run_id }}
+          path: |
+            smoke-out/**/core-stderr.log
+            smoke-out/subscription.yaml
+            gui-logs/**
+          if-no-files-found: ignore
