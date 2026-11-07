@@ -1,0 +1,550 @@
+name: CI Runner
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag'
+        required: true
+        default: 'wonderx-v1-0.9.3-pure-rust-test-20261107-r4'
+      core_commit:
+        description: 'wonderx-core-rs commit'
+        required: true
+        default: '8a59cc6ed39882020b78b9d65a86fb5b59266cb4'
+      client_ref:
+        description: 'xxdmanfl0609 commit/branch'
+        required: true
+        default: 'f529fce6'
+
+permissions:
+  contents: write
+
+env:
+  FLUTTER_VERSION: '3.47.6'
+  NDK_VERSION: r28c
+  CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
+
+jobs:
+  interop-and-contract-test:
+    name: Interop & Contract Tests (Linux)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Setup SSH keys
+        shell: bash
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.CORE_READ_KEY }}" > ~/.ssh/id_core
+          printf '%s\n' "${{ secrets.PROTO_READ_KEY }}" > ~/.ssh/id_proto
+          chmod 600 ~/.ssh/id_core ~/.ssh/id_proto
+
+          cat > ~/.ssh/config << 'EOF'
+          Host github.com-core
+            HostName github.com
+            User git
+            IdentityFile ~/.ssh/id_core
+            IdentitiesOnly yes
+            StrictHostKeyChecking accept-new
+
+          Host github.com-proto
+            HostName github.com
+            User git
+            IdentityFile ~/.ssh/id_proto
+            IdentitiesOnly yes
+            StrictHostKeyChecking accept-new
+          EOF
+
+          git config --global url."git@github.com-proto:worldneedme/wonderx-proto-rs.git".insteadOf "https://github.com/worldneedme/wonderx-proto-rs.git"
+          git config --global --add url."git@github.com-proto:worldneedme/wonderx-proto-rs.git".insteadOf "git@github.com:worldneedme/wonderx-proto-rs.git"
+          git config --global --add url."git@github.com-proto:worldneedme/wonderx-proto-rs.git".insteadOf "https://github.com/worldneedme/wonderx-proto-rs"
+
+          git config --global url."git@github.com-core:worldneedme/wonderx-core-rs.git".insteadOf "https://github.com/worldneedme/wonderx-core-rs.git"
+          git config --global --add url."git@github.com-core:worldneedme/wonderx-core-rs.git".insteadOf "git@github.com:worldneedme/wonderx-core-rs.git"
+          git config --global --add url."git@github.com-core:worldneedme/wonderx-core-rs.git".insteadOf "https://github.com/worldneedme/wonderx-core-rs"
+
+      - name: Clone wonderx-core-rs
+        shell: bash
+        run: |
+          git clone git@github.com-core:worldneedme/wonderx-core-rs.git core
+          cd core
+          git checkout ${{ inputs.core_commit }}
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core -> target
+
+      - name: Install official mita (server binary only)
+        run: |
+          curl -fsSL -o mita.deb "https://github.com/enfein/mieru/releases/download/v3.34.1/mita_3.34.1_amd64.deb"
+          sudo dpkg -i mita.deb
+          sudo mita apply config core/crates/wonderx-ext/ci/mita-server.json
+          sudo mita start
+          sleep 3
+          sudo mita status || true
+
+      - name: Install Caddy with naive forwardproxy
+        run: |
+          URL=$(curl -fsSL https://api.github.com/repos/klzgrad/forwardproxy/releases/latest | jq -r '.assets[].browser_download_url' | grep -E 'caddy-forwardproxy-naive.tar.xz' | head -1)
+          curl -fsSL -o caddy.tar.xz "$URL"
+          mkdir caddybin && tar -xf caddy.tar.xz -C caddybin
+          CADDY=$(find caddybin -type f -name caddy | head -1); chmod +x "$CADDY"
+          mkdir -p /tmp/www && echo ok > /tmp/www/index.html
+          nohup "$CADDY" run --config core/crates/wonderx-ext/ci/Caddyfile --adapter caddyfile > /tmp/caddy.log 2>&1 &
+          sleep 4
+
+      - name: Install official juicity-server
+        run: |
+          curl -fsSL -o juicity.zip "https://github.com/juicity/juicity/releases/download/v0.5.0/juicity-linux-x86_64.zip"
+          unzip -q juicity.zip -d juicitybin
+          chmod +x juicitybin/juicity-server
+          mkdir -p /tmp/juicity
+          openssl req -x509 -newkey rsa:2048 -nodes -keyout /tmp/juicity/privkey.pem -out /tmp/juicity/fullchain.pem -days 365 -subj "/CN=127.0.0.1"
+          cp core/crates/wonderx-ext/ci/juicity-server.json /tmp/juicity/server.json
+          nohup juicitybin/juicity-server run -c /tmp/juicity/server.json > /tmp/juicity.log 2>&1 &
+          sleep 3
+
+      - name: Run wonderx-ext protocol interop tests
+        env:
+          JUICITY_SERVER: "127.0.0.1"
+          JUICITY_PORT: "23182"
+          JUICITY_UUID: "00000000-0000-0000-0000-000000000000"
+          JUICITY_PASSWORD: "testpassword"
+          RUSTFLAGS: "-Awarnings"
+        run: |
+          cd core
+          cargo test -p wonderx-ext --quiet -- --nocapture
+
+      - name: Run wonderx-desktop contract tests (Linux)
+        env:
+          RUSTFLAGS: "-Awarnings"
+        run: |
+          cd core
+          cargo test -p wonderx-desktop --quiet -- --nocapture
+
+  build-and-package-android:
+    name: Build & Package Android APK (arm64-v8a)
+    needs: [interop-and-contract-test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /usr/share/swift
+          sudo apt-get clean
+
+      - name: Setup SSH keys
+        shell: bash
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.CORE_READ_KEY }}" > ~/.ssh/id_core
+          printf '%s\n' "${{ secrets.PROTO_READ_KEY }}" > ~/.ssh/id_proto
+          printf '%s\n' "${{ secrets.CLIENT_READ_KEY }}" > ~/.ssh/id_client
+          chmod 600 ~/.ssh/id_core ~/.ssh/id_proto ~/.ssh/id_client
+
+          cat > ~/.ssh/config << 'EOF'
+          Host github.com-core
+            HostName github.com
+            User git
+            IdentityFile ~/.ssh/id_core
+            IdentitiesOnly yes
+            StrictHostKeyChecking accept-new
+
+          Host github.com-proto
+            HostName github.com
+            User git
+            IdentityFile ~/.ssh/id_proto
+            IdentitiesOnly yes
+            StrictHostKeyChecking accept-new
+
+          Host github.com-client
+            HostName github.com
+            User git
+            IdentityFile ~/.ssh/id_client
+            IdentitiesOnly yes
+            StrictHostKeyChecking accept-new
+          EOF
+
+          git config --global url."git@github.com-proto:worldneedme/wonderx-proto-rs.git".insteadOf "https://github.com/worldneedme/wonderx-proto-rs.git"
+          git config --global --add url."git@github.com-proto:worldneedme/wonderx-proto-rs.git".insteadOf "git@github.com:worldneedme/wonderx-proto-rs.git"
+          git config --global --add url."git@github.com-proto:worldneedme/wonderx-proto-rs.git".insteadOf "https://github.com/worldneedme/wonderx-proto-rs"
+
+          git config --global url."git@github.com-core:worldneedme/wonderx-core-rs.git".insteadOf "https://github.com/worldneedme/wonderx-core-rs.git"
+          git config --global --add url."git@github.com-core:worldneedme/wonderx-core-rs.git".insteadOf "git@github.com:worldneedme/wonderx-core-rs.git"
+          git config --global --add url."git@github.com-core:worldneedme/wonderx-core-rs.git".insteadOf "https://github.com/worldneedme/wonderx-core-rs"
+
+          git config --global url."git@github.com-client:worldneedme/xxdmanfl0609.git".insteadOf "https://github.com/worldneedme/xxdmanfl0609.git"
+          git config --global --add url."git@github.com-client:worldneedme/xxdmanfl0609.git".insteadOf "git@github.com:worldneedme/xxdmanfl0609.git"
+          git config --global --add url."git@github.com-client:worldneedme/xxdmanfl0609.git".insteadOf "https://github.com/worldneedme/xxdmanfl0609"
+
+      - name: Clone wonderx-core-rs
+        shell: bash
+        run: |
+          git clone git@github.com-core:worldneedme/wonderx-core-rs.git core
+          cd core
+          git checkout ${{ inputs.core_commit }}
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core -> target
+
+      - name: Setup NDK
+        uses: nttld/setup-ndk@v1
+        id: build-ndk
+        with:
+          ndk-version: ${{ env.NDK_VERSION }}
+          add-to-path: true
+          link-to-sdk: true
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk
+
+      - name: Build pure Rust libclash.so
+        env:
+          ANDROID_NDK_HOME: ${{ steps.build-ndk.outputs.ndk-path }}
+          ANDROID_NDK_ROOT: ${{ steps.build-ndk.outputs.ndk-path }}
+          CARGO_PROFILE_RELEASE_DEBUG: "false"
+          CARGO_PROFILE_RELEASE_STRIP: "true"
+          RUSTFLAGS: "-Awarnings --remap-path-prefix=${{ github.workspace }}=/src --remap-path-prefix=${{ env.HOME }}/.cargo=/cargo"
+        run: |
+          cd core
+          mkdir -p dist
+          cargo ndk -t arm64-v8a --platform 24 -o dist build -p wonderx-mobile --release --quiet
+          
+          test -s dist/arm64-v8a/libclash.so
+          
+          STRIP="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
+          test -x "$STRIP" || STRIP="llvm-strip"
+          "$STRIP" dist/arm64-v8a/libclash.so
+          
+          ls -lh dist/arm64-v8a/libclash.so
+          sha256sum dist/arm64-v8a/libclash.so
+
+      - name: Leak prevention strings check (libclash.so)
+        shell: bash
+        run: |
+          so="core/dist/arm64-v8a/libclash.so"
+          echo "=== String scan for libclash.so ==="
+          python3 -c '
+          import sys
+          data = open(sys.argv[1], "rb").read()
+          targets = [b"runneradmin", b"wonderx-proto-rs", b"wonderx-core-rs", b".pdb"]
+          for t in targets:
+              print(f"{t.decode()}: {data.count(t)}")
+          ' "$so"
+
+      - name: Clone Client (xxdmanfl0609)
+        shell: bash
+        run: |
+          git clone git@github.com-client:worldneedme/xxdmanfl0609.git client
+          cd client
+          git checkout ${{ inputs.client_ref }}
+          git submodule update --init --recursive
+
+      - name: Replace libclash.so with new r4 build
+        shell: bash
+        run: |
+          cp core/dist/arm64-v8a/libclash.so client/android/core/src/main/jniLibs/arm64-v8a/libclash.so
+          sha256sum client/android/core/src/main/jniLibs/arm64-v8a/libclash.so
+
+      - name: Download Naive helper for Android
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(curl -fsSL https://api.github.com/repos/klzgrad/naiveproxy/releases/latest | sed -nE 's/.*"tag_name": "([^"]+)".*/\1/p' | head -1)
+          test -n "$version"
+          apk="naiveproxy-plugin-${version}-arm64-v8a.apk"
+          mkdir -p naive_tmp client/android/app/src/main/jniLibs/arm64-v8a
+          curl -fL -o "naive_tmp/$apk" "https://github.com/klzgrad/naiveproxy/releases/download/${version}/${apk}"
+          unzip -o "naive_tmp/$apk" 'lib/arm64-v8a/libnaive.so' -d naive_tmp/extracted
+          cp naive_tmp/extracted/lib/arm64-v8a/libnaive.so client/android/app/src/main/jniLibs/arm64-v8a/
+          test -s client/android/app/src/main/jniLibs/arm64-v8a/libnaive.so
+
+      - name: Setup Android signing
+        shell: bash
+        working-directory: client
+        run: |
+          if [ -n "${{ secrets.KEYSTORE }}" ]; then
+            echo "${{ secrets.KEYSTORE }}" | base64 --decode > android/app/keystore.jks
+            {
+              echo "keyAlias=${{ secrets.KEY_ALIAS }}"
+              echo "storePassword=${{ secrets.STORE_PASSWORD }}"
+              echo "keyPassword=${{ secrets.KEY_PASSWORD }}"
+            } >> android/local.properties
+          fi
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: master
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Package Android APK
+        working-directory: client
+        env:
+          ANDROID_NDK_HOME: ${{ steps.build-ndk.outputs.ndk-path }}
+        run: |
+          flutter pub get
+          dart setup.dart android --arch arm64 -v
+
+      - name: Verify package outputs & Validate Cert Fingerprint
+        id: cert
+        working-directory: client
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d ./dist
+          find ./dist -type f | sort
+          apk_file=$(find ./dist -name '*.apk' -print -quit)
+          test -n "$apk_file"
+          echo "Found APK: $apk_file"
+
+          APKSIGNER=$(find ${ANDROID_HOME:-$ANDROID_SDK_ROOT} -name apksigner 2>/dev/null | sort -V | tail -1)
+          if [ -n "$APKSIGNER" ] && [ -x "$APKSIGNER" ]; then
+            "$APKSIGNER" verify --print-certs "$apk_file" | tee cert_info.txt
+            sha256=$(grep -i "SHA-256 digest:" cert_info.txt | head -1 | awk '{print $NF}')
+          else
+            keytool -printcert -jarfile "$apk_file" | tee cert_info.txt
+            sha256=$(grep -i "SHA256:" cert_info.txt | head -1 | awk '{print $2}')
+          fi
+
+          echo "Extracted SHA256: $sha256"
+          EXPECTED="440f4372f8cc4b7a5d2e3bda4b2598e9635b99bef61fa85bea14122bcdd4fe94"
+          if [[ "${sha256,,}" != "${EXPECTED,,}" ]]; then
+            echo "::error::Certificate fingerprint mismatch! Got: $sha256, Expected: $EXPECTED"
+            exit 1
+          fi
+          echo "Certificate fingerprint matched officially!"
+
+          mkdir -p ../dist_out
+          cp "$apk_file" ../dist_out/
+          cp ../core/dist/arm64-v8a/libclash.so ../dist_out/
+
+      - name: Upload Android Output
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-output
+          path: dist_out/*
+
+  build-and-package-windows:
+    name: Build & Package Windows Desktop (amd64)
+    needs: [interop-and-contract-test]
+    runs-on: windows-2022
+    steps:
+      - name: Enable Git long paths
+        run: git config --global core.longpaths true
+
+      - name: Setup SSH keys
+        shell: bash
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.CORE_READ_KEY }}" > ~/.ssh/id_core
+          printf '%s\n' "${{ secrets.PROTO_READ_KEY }}" > ~/.ssh/id_proto
+          printf '%s\n' "${{ secrets.CLIENT_READ_KEY }}" > ~/.ssh/id_client
+          chmod 600 ~/.ssh/id_core ~/.ssh/id_proto ~/.ssh/id_client 2>/dev/null || true
+
+          cat > ~/.ssh/config << 'EOF'
+          Host github.com-core
+            HostName github.com
+            User git
+            IdentityFile ~/.ssh/id_core
+            IdentitiesOnly yes
+            StrictHostKeyChecking accept-new
+
+          Host github.com-proto
+            HostName github.com
+            User git
+            IdentityFile ~/.ssh/id_proto
+            IdentitiesOnly yes
+            StrictHostKeyChecking accept-new
+
+          Host github.com-client
+            HostName github.com
+            User git
+            IdentityFile ~/.ssh/id_client
+            IdentitiesOnly yes
+            StrictHostKeyChecking accept-new
+          EOF
+
+          git config --global url."git@github.com-proto:worldneedme/wonderx-proto-rs.git".insteadOf "https://github.com/worldneedme/wonderx-proto-rs.git"
+          git config --global --add url."git@github.com-proto:worldneedme/wonderx-proto-rs.git".insteadOf "git@github.com:worldneedme/wonderx-proto-rs.git"
+          git config --global --add url."git@github.com-proto:worldneedme/wonderx-proto-rs.git".insteadOf "https://github.com/worldneedme/wonderx-proto-rs"
+
+          git config --global url."git@github.com-core:worldneedme/wonderx-core-rs.git".insteadOf "https://github.com/worldneedme/wonderx-core-rs.git"
+          git config --global --add url."git@github.com-core:worldneedme/wonderx-core-rs.git".insteadOf "git@github.com:worldneedme/wonderx-core-rs.git"
+          git config --global --add url."git@github.com-core:worldneedme/wonderx-core-rs.git".insteadOf "https://github.com/worldneedme/wonderx-core-rs"
+
+          git config --global url."git@github.com-client:worldneedme/xxdmanfl0609.git".insteadOf "https://github.com/worldneedme/xxdmanfl0609.git"
+          git config --global --add url."git@github.com-client:worldneedme/xxdmanfl0609.git".insteadOf "git@github.com:worldneedme/xxdmanfl0609.git"
+          git config --global --add url."git@github.com-client:worldneedme/xxdmanfl0609.git".insteadOf "https://github.com/worldneedme/xxdmanfl0609"
+
+      - name: Clone wonderx-core-rs
+        shell: bash
+        run: |
+          git clone git@github.com-core:worldneedme/wonderx-core-rs.git core
+          cd core
+          git checkout ${{ inputs.core_commit }}
+
+      - name: Setup NASM
+        uses: ilammy/setup-nasm@v1
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core -> target
+
+      - name: Run wonderx-desktop contract tests (Windows)
+        shell: bash
+        env:
+          RUSTFLAGS: "-Awarnings"
+        run: |
+          cd core
+          cargo test -p wonderx-desktop --quiet -- --nocapture
+
+      - name: Build FlClashCore.exe
+        shell: bash
+        env:
+          CARGO_PROFILE_RELEASE_DEBUG: "false"
+          CARGO_PROFILE_RELEASE_STRIP: "true"
+        run: |
+          cd core
+          WIN_WS=$(cygpath -w "$GITHUB_WORKSPACE" 2>/dev/null || echo "$GITHUB_WORKSPACE")
+          WIN_USER=$(cygpath -w "$USERPROFILE" 2>/dev/null || echo "$USERPROFILE")
+          export RUSTFLAGS="-Awarnings -C link-args=/DEBUG:NONE --remap-path-prefix=$WIN_WS=/src --remap-path-prefix=$WIN_USER\\.cargo=/cargo --remap-path-prefix=${{ github.workspace }}=/src --remap-path-prefix=${{ env.USERPROFILE }}/.cargo=/cargo --remap-path-prefix=$HOME/.cargo=/cargo"
+          cargo build -p wonderx-desktop --release --quiet
+          ls -lh target/release/FlClashCore.exe
+          sha256sum target/release/FlClashCore.exe
+
+      - name: Leak prevention strings check (FlClashCore.exe)
+        shell: bash
+        run: |
+          exe="core/target/release/FlClashCore.exe"
+          echo "=== String scan for FlClashCore.exe ==="
+          python -c '
+          import sys
+          data = open(sys.argv[1], "rb").read()
+          targets = [b"runneradmin", b"wonderx-proto-rs", b"wonderx-core-rs", b".pdb"]
+          for t in targets:
+              print(f"{t.decode()}: {data.count(t)}")
+          ' "$exe"
+
+      - name: Clone Client (xxdmanfl0609)
+        shell: bash
+        run: |
+          git clone git@github.com-client:worldneedme/xxdmanfl0609.git client
+          cd client
+          git checkout ${{ inputs.client_ref }}
+          git submodule update --init --recursive
+
+      - name: Replace FlClashCore.exe with new r4 build
+        shell: bash
+        run: |
+          cp core/target/release/FlClashCore.exe client/libclash/windows/FlClashCore.exe
+          sha256sum client/libclash/windows/FlClashCore.exe
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: master
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Package Windows Desktop
+        working-directory: client
+        run: |
+          flutter pub get
+          dart setup.dart windows -v
+
+      - name: Windows startup smoke test
+        working-directory: client
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zip = Get-ChildItem -Path '.\dist' -Recurse -Filter '*-windows-*.zip' | Select-Object -First 1
+          if (-not $zip) { throw 'Windows ZIP was not produced.' }
+          $root = Join-Path (Get-Location).Path 'smoke'
+          Expand-Archive -LiteralPath $zip.FullName -DestinationPath $root -Force
+          $exe = Join-Path $root 'FlClash.exe'
+          foreach ($required in @('FlClash.exe', 'FlClashCore.exe', 'manifest.json', 'protocol-helpers\naive.exe', 'FlClashHelperService.exe')) {
+            if (-not (Test-Path (Join-Path $root $required))) { throw "$required is missing from archive" }
+          }
+          $process = Start-Process -FilePath $exe -WorkingDirectory $root -WindowStyle Hidden -PassThru
+          Start-Sleep -Seconds 10
+          $process.Refresh()
+          if ($process.HasExited -and $process.ExitCode -ne 0) {
+            throw "FlClash.exe exited during smoke with code $($process.ExitCode)"
+          }
+          Get-Process -Name FlClash,FlClashCore -ErrorAction SilentlyContinue |
+            Where-Object { $_.Path -and $_.Path.StartsWith($root, [StringComparison]::OrdinalIgnoreCase) } |
+            Stop-Process -Force -ErrorAction SilentlyContinue
+
+      - name: Prepare Windows outputs
+        shell: bash
+        run: |
+          mkdir -p win_out
+          cp client/dist/*.exe win_out/ || true
+          cp client/dist/*.zip win_out/ || true
+          cp core/target/release/FlClashCore.exe win_out/FlClashCore-standalone.exe
+          ls -lh win_out/
+
+      - name: Upload Windows Output
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-output
+          path: win_out/*
+
+  publish-release:
+    name: Publish r4 Release
+    needs: [build-and-package-android, build-and-package-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Organize release assets & Generate Checksums
+        shell: bash
+        run: |
+          mkdir -p release_assets
+          find artifacts/ -type f \( -name '*.apk' -o -name '*.exe' -o -name '*.zip' -o -name '*.so' \) | while read -r f; do
+            cp "$f" release_assets/
+          done
+
+          cd release_assets
+          sha256sum *.apk *.exe *.zip *.so > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          ls -lh
+
+      - name: Create Pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag }}
+          name: WONDERX V1 ${{ inputs.tag }}
+          prerelease: true
+          files: release_assets/*
+          fail_on_unmatched_files: true
