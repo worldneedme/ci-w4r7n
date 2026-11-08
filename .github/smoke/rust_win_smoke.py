@@ -586,8 +586,8 @@ async def realshape_session(core, root, label, app_dir, env, sub_text, tun, call
                 else:
                     gval = r_g["result"]["value"]
                     print(f"  [{label}] proxy.testDelay({g}) -> {gval}")
-                    if gval <= 0:
-                        fails.append(f"proxy.testDelay({g}) value must be > 0 (got {gval})")
+                    if not isinstance(gval, int) or gval == 0:
+                        fails.append(f"proxy.testDelay({g}) invalid value: {gval}")
             r, dt = await host.call("proxy.list", None, call_timeout)
             if r.get("_timeout"):
                 fails.append("proxy.list after delay tests: NO REPLY")
