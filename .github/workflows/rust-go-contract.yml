@@ -6,7 +6,7 @@ on:
       core_commit:
         description: 'wonderx-core-rs full 40-char commit SHA'
         required: true
-        default: '0ff965f2c9fb670a01ba9676043df2265f2ccf6f'
+        default: '8d73ff4f1e3ac0f33c808c23f7ac2dd1d6199021'
       go_release_tag:
         description: 'Go signed release tag'
         required: true

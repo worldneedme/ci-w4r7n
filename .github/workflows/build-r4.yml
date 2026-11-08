@@ -6,7 +6,7 @@ on:
       tag:
         description: 'Release tag'
         required: true
-        default: 'wonderx-v1-0.9.3-pure-rust-test-20261107-r6'
+        default: 'wonderx-v1-0.9.3-pure-rust-test-20261108-r11'
       core_commit:
         description: 'wonderx-core-rs commit'
         required: true
@@ -131,6 +131,20 @@ jobs:
         run: |
           cd core
           cargo test -p wonderx-mobile --quiet -- --nocapture
+
+      - name: Build Linux FlClashCore binary (for G13 verification)
+        run: |
+          cd core
+          cargo build -p wonderx-desktop --release --quiet
+          mkdir -p ../linux_out
+          cp target/release/FlClashCore ../linux_out/FlClashCore-linux-amd64
+          sha256sum ../linux_out/FlClashCore-linux-amd64
+
+      - name: Upload Linux Core Binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-core-amd64
+          path: linux_out/*
 
   build-and-package-android:
     name: Build & Package Android APK (arm64-v8a)
@@ -614,6 +628,16 @@ jobs:
             Where-Object { $_.Path -and $_.Path.StartsWith($root, [StringComparison]::OrdinalIgnoreCase) } |
             Stop-Process -Force -ErrorAction SilentlyContinue
 
+      - name: Windows 5/5 realshape smoke test (sanitized 30 nodes + Flutter group visibility)
+        shell: pwsh
+        run: |
+          $root = Join-Path (Get-Location).Path 'client\smoke'
+          python .github/smoke/rust_win_smoke.py `
+            --core "$root\FlClashCore.exe" `
+            --app-dir "$root" `
+            --realshape .github/smoke/realshape_sanitized.yaml `
+            --loops 5
+
       - name: Prepare Windows outputs
         shell: bash
         run: |
@@ -630,7 +654,7 @@ jobs:
           path: win_out/*
 
   publish-draft-release:
-    name: Publish r6 Draft Release
+    name: Publish Draft Release
     needs: [build-and-package-android, build-and-package-windows]
     runs-on: ubuntu-latest
     steps:

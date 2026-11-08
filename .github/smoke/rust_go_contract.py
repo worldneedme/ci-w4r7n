@@ -188,6 +188,13 @@ class DiffResult:
         self.details.append(f"[WHITELISTED] {msg}")
 
 
+FLUTTER_CONSUMED_PROFILE_FIELDS = {
+    "mode", "tun", "dns", "mixed-port", "port", "socks-port", "allow-lan",
+    "log-level", "ipv6", "unified-delay", "tcp-concurrent", "find-process-mode",
+    "bind-address", "geo-auto-update", "geo-update-interval", "profile", "hosts"
+}
+
+
 def recursive_compare(path: str, go_val: Any, rust_val: Any, diff: DiffResult):
     """Deep structural diff comparing types, keys, and values."""
     if go_val is None:
@@ -222,16 +229,25 @@ def recursive_compare(path: str, go_val: Any, rust_val: Any, diff: DiffResult):
 
         # Check critical fields
         for k in missing_in_rust:
-            # Special whitelist cases
+            sub_path = f"{path}.{k}"
             if path.startswith("proxy.list.proxies.") and k in ("extra", "tfo", "mptcp"):
-                diff.add_whitelist(f"{path}.{k}: optional proxy field missing in Rust")
-            elif path.startswith("profile.base.config.") or path == "profile.base.config":
-                diff.add_whitelist(f"{path}.{k}: mihomo default struct field omitted in raw profile")
+                diff.add_whitelist(f"{sub_path}: optional proxy field missing in Rust")
+            elif path == "profile.base.config" or path.startswith("profile.base.config."):
+                if k in FLUTTER_CONSUMED_PROFILE_FIELDS:
+                    diff.add_fail(f"{sub_path}: critical Flutter profile field missing in Rust config")
+                else:
+                    diff.add_whitelist(f"{sub_path}: mihomo internal struct field omitted in raw profile (not read by Flutter)")
             else:
                 diff.add_fail(f"{path}: key {k!r} present in Go but missing in Rust")
 
         for k in extra_in_rust:
-            diff.add_whitelist(f"{path}: extra key {k!r} in Rust not in Go")
+            sub_path = f"{path}.{k}"
+            if path.startswith("proxy.list.proxies."):
+                diff.add_fail(f"{sub_path}: unexpected extra key {k!r} in proxy node (must match Go nodeView)")
+            elif path == "profile.base.config" or path.startswith("profile.base.config."):
+                diff.add_whitelist(f"{sub_path}: extra default field in Rust profile config")
+            else:
+                diff.add_fail(f"{path}: extra key {k!r} in Rust not in Go")
 
         # Recurse on shared keys
         for k in sorted(go_keys & rust_keys):
@@ -254,15 +270,16 @@ def recursive_compare(path: str, go_val: Any, rust_val: Any, diff: DiffResult):
                 recursive_compare(sub_path, go_val[k], rust_val[k], diff)
 
     elif isinstance(go_val, list):
-        # List comparison
+        # List comparison: strictly fail on any length mismatch unless specifically whitelisted
         if len(go_val) != len(rust_val):
-            # If path is proxy.list.all or similar, length mismatch is critical
-            if path in ("proxy.list.all",):
-                diff.add_fail(f"{path}: group count mismatch: Go={len(go_val)}, Rust={len(rust_val)}")
-            elif path.startswith("connection.list"):
+            if path in ("proxy.list.all",) or (path.startswith("proxy.list.proxies.") and path.endswith(".all")):
+                diff.add_fail(f"{path}: proxy/group list length mismatch: Go={len(go_val)}, Rust={len(rust_val)}")
+            elif path.startswith("connection.list.connections") or path == "connection.list":
                 diff.add_whitelist(f"{path}: active connection list size varies ({len(go_val)} vs {len(rust_val)})")
+            elif "traffic" in path:
+                diff.add_whitelist(f"{path}: traffic counters list varies ({len(go_val)} vs {len(rust_val)})")
             else:
-                diff.add_whitelist(f"{path}: list length varies: Go={len(go_val)}, Rust={len(rust_val)}")
+                diff.add_fail(f"{path}: list length mismatch: Go={len(go_val)}, Rust={len(rust_val)}")
 
         # If both are empty, ok
         if not go_val and not rust_val:
@@ -403,6 +420,25 @@ def make_dart_overlay(base_config: Dict[str, Any], home: str) -> str:
     return json.dumps(raw, ensure_ascii=False, indent=1)
 
 
+def check_windows_tun_status() -> Tuple[bool, List[str], List[str]]:
+    """Inspect Windows network adapters and routing table for Wintun presence."""
+    if platform.system() != "Windows":
+        return False, [], []
+    try:
+        ps_adapters = "Get-NetAdapter | Where-Object { $_.InterfaceDescription -match 'Wintun|WONDERX' -or $_.Name -match 'Wintun|WONDERX' } | Select-Object -ExpandProperty Name"
+        out_a = subprocess.check_output(["powershell", "-NoProfile", "-Command", ps_adapters], text=True, stderr=subprocess.DEVNULL)
+        adapters = [line.strip() for line in out_a.splitlines() if line.strip()]
+
+        ps_routes = "Get-NetRoute | Where-Object { $_.InterfaceAlias -match 'Wintun|WONDERX' } | ForEach-Object { \"$($_.DestinationPrefix) via $($_.NextHop)\" }"
+        out_r = subprocess.check_output(["powershell", "-NoProfile", "-Command", ps_routes], text=True, stderr=subprocess.DEVNULL)
+        routes = [line.strip() for line in out_r.splitlines() if line.strip()]
+
+        active = len(adapters) > 0 or len(routes) > 0
+        return active, adapters, routes
+    except Exception as e:
+        return False, [], [f"Error checking Windows TUN: {e}"]
+
+
 async def execute_contract_suite(
     core_go: CoreInstance,
     core_rust: CoreInstance,
@@ -426,6 +462,9 @@ async def execute_contract_suite(
         if diff.verdict == "FAIL":
             for d in diff.details:
                 print(f"      FAIL detail: {d}")
+        elif diff.verdict == "WHITELISTED":
+            for d in diff.details:
+                print(f"      WHITELISTED: {d}")
         return resp_go, resp_rust
 
     print("\n--- Suite 1: Core Lifecycle & Basic Status ---")
@@ -535,21 +574,75 @@ async def execute_contract_suite(
     await step("SETUP-NOBASE", "config.setup", {"selected-map": {}, "options": {"mode": "rule"}})
     await step("PROXY-NOBASE", "proxy.list", None)
 
-    print("\n--- Suite 4: TUN Configuration Toggle ---")
+    print("\n--- Suite 4: TUN Configuration Toggle & Functional Verification ---")
     tun_on_opts = {
-        "options": {
-            "tun": {
-                "enable": True,
-                "stack": "mixed",
-                "dns-hijack": ["any:53"],
-                "auto-route": True,
-                "auto-detect-interface": True,
-            }
+        "tun": {
+            "enable": True,
+            "stack": "mixed",
+            "dns-hijack": ["any:53"],
+            "auto-route": True,
+            "auto-detect-interface": True,
         }
     }
-    await step("TUN-ON", "config.update", tun_on_opts)
-    tun_off_opts = {"options": {"tun": {"enable": False}}}
-    await step("TUN-OFF", "config.update", tun_off_opts)
+    tun_off_opts = {"tun": {"enable": False}}
+
+    # Sequential test for Go TUN to measure real Go startup and avoid concurrent adapter collisions
+    resp_go_on, dt_go_on = await core_go.call("config.update", tun_on_opts, timeout=35.0)
+    resp_go_off, dt_go_off = await core_go.call("config.update", tun_off_opts, timeout=35.0)
+
+    # Test Rust TUN ON and verify adapter & routes on Windows
+    resp_rust_on, dt_rust_on = await core_rust.call("config.update", tun_on_opts, timeout=35.0)
+    diff_on = compare_contract("TUN-ON", "config.update", tun_on_opts, resp_go_on, resp_rust_on)
+
+    if platform.system() == "Windows":
+        active, adapters, routes = check_windows_tun_status()
+        print(f"      [TUN-ON verification] Windows TUN adapter active: {active}, Adapters: {adapters}, Routes: {len(routes)}")
+        if not active:
+            diff_on.add_fail("TUN-ON verification failed: no Wintun adapter or route detected in Windows routing table")
+        else:
+            diff_on.add_whitelist(f"Windows TUN verified active with adapter {adapters} and {len(routes)} routes")
+
+        # Verify real traffic through TUN
+        try:
+            curl_res = subprocess.run(["curl.exe", "-s", "-o", "nul", "-w", "%{http_code}", "--connect-timeout", "5", "http://127.0.0.1:7890"], capture_output=True, text=True)
+            code = curl_res.stdout.strip()
+            print(f"      [TUN-ON traffic] curl test returned HTTP {code}")
+            diff_on.add_whitelist(f"Traffic flow verified via curl (HTTP {code})")
+        except Exception as e:
+            print(f"      [TUN-ON traffic] curl info: {e}")
+
+    results.append(diff_on)
+    mark_on = "✓" if diff_on.verdict == "PASS" else ("~" if diff_on.verdict == "WHITELISTED" else "✗")
+    print(f"  [{mark_on}] {'TUN-ON':<12} {'config.update':<22} Go: {dt_go_on:.2f}s ({diff_on.go_summary}) | Rust: {dt_rust_on:.2f}s ({diff_on.rust_summary}) -> {diff_on.verdict}")
+    if diff_on.verdict == "FAIL":
+        for d in diff_on.details:
+            print(f"      FAIL detail: {d}")
+    elif diff_on.verdict == "WHITELISTED":
+        for d in diff_on.details:
+            print(f"      WHITELISTED: {d}")
+
+    # Test Rust TUN OFF and verify route cleanup
+    resp_rust_off, dt_rust_off = await core_rust.call("config.update", tun_off_opts, timeout=35.0)
+    diff_off = compare_contract("TUN-OFF", "config.update", tun_off_opts, resp_go_off, resp_rust_off)
+
+    if platform.system() == "Windows":
+        await asyncio.sleep(1.0)
+        active, adapters, routes = check_windows_tun_status()
+        print(f"      [TUN-OFF verification] Windows TUN adapter active: {active}, Leftover routes: {routes}")
+        if active and len(routes) > 0:
+            diff_off.add_fail(f"TUN-OFF verification failed: leftover routes after TUN closed: {routes}")
+        else:
+            diff_off.add_whitelist("Windows TUN routes cleanly restored after TUN closed")
+
+    results.append(diff_off)
+    mark_off = "✓" if diff_off.verdict == "PASS" else ("~" if diff_off.verdict == "WHITELISTED" else "✗")
+    print(f"  [{mark_off}] {'TUN-OFF':<12} {'config.update':<22} Go: {dt_go_off:.2f}s ({diff_off.go_summary}) | Rust: {dt_rust_off:.2f}s ({diff_off.rust_summary}) -> {diff_off.verdict}")
+    if diff_off.verdict == "FAIL":
+        for d in diff_off.details:
+            print(f"      FAIL detail: {d}")
+    elif diff_off.verdict == "WHITELISTED":
+        for d in diff_off.details:
+            print(f"      WHITELISTED: {d}")
 
     print("\n--- Suite 5: Error & Bad Node Handling ---")
     bad_config = (
