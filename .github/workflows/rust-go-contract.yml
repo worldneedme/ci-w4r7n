@@ -1,0 +1,133 @@
+name: Rust / Go Differential Contract Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      core_commit:
+        description: 'wonderx-core-rs full 40-char commit SHA'
+        required: true
+        default: '0ff965f2c9fb670a01ba9676043df2265f2ccf6f'
+      go_release_tag:
+        description: 'Go signed release tag'
+        required: true
+        default: 'wonderx-v1-0.9.3-signed-20261107-9a383e58'
+  workflow_call:
+    inputs:
+      core_commit:
+        type: string
+        required: true
+      go_release_tag:
+        type: string
+        required: false
+        default: 'wonderx-v1-0.9.3-signed-20261107-9a383e58'
+
+env:
+  CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
+  PYTHONIOENCODING: utf-8
+  PYTHONUNBUFFERED: '1'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  contract-diff:
+    name: Contract Diff (Go vs Rust)
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate SHA
+        shell: bash
+        run: |
+          [[ "${{ inputs.core_commit }}" =~ ^[0-9a-f]{40}$ ]] || { echo "core_commit must be a full 40-char SHA"; exit 1; }
+
+      - name: Setup SSH keys
+        shell: bash
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.CORE_READ_KEY }}" > ~/.ssh/id_core
+          printf '%s\n' "${{ secrets.PROTO_READ_KEY }}" > ~/.ssh/id_proto
+          chmod 600 ~/.ssh/id_core ~/.ssh/id_proto 2>/dev/null || true
+          cat > ~/.ssh/config << 'CFG'
+          Host github.com-core
+            HostName github.com
+            User git
+            IdentityFile ~/.ssh/id_core
+            IdentitiesOnly yes
+            StrictHostKeyChecking accept-new
+          Host github.com-proto
+            HostName github.com
+            User git
+            IdentityFile ~/.ssh/id_proto
+            IdentitiesOnly yes
+            StrictHostKeyChecking accept-new
+          CFG
+          git config --global url."git@github.com-proto:worldneedme/wonderx-proto-rs.git".insteadOf "https://github.com/worldneedme/wonderx-proto-rs.git"
+          git config --global --add url."git@github.com-proto:worldneedme/wonderx-proto-rs.git".insteadOf "git@github.com:worldneedme/wonderx-proto-rs.git"
+          git config --global --add url."git@github.com-proto:worldneedme/wonderx-proto-rs.git".insteadOf "https://github.com/worldneedme/wonderx-proto-rs"
+
+      - name: Clone wonderx-core-rs
+        shell: bash
+        run: |
+          git clone git@github.com-core:worldneedme/wonderx-core-rs.git core
+          cd core && git checkout ${{ inputs.core_commit }} && git log -1 --oneline
+
+      - uses: ilammy/setup-nasm@v1
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core -> target
+
+      - name: Build Rust FlClashCore.exe
+        shell: bash
+        env:
+          CARGO_PROFILE_RELEASE_DEBUG: "false"
+          CARGO_PROFILE_RELEASE_STRIP: "true"
+          RUSTFLAGS: "-Awarnings"
+        run: |
+          cd core
+          cargo build -p wonderx-desktop --release --quiet
+          sha256sum target/release/FlClashCore.exe
+
+      - name: Fetch Go official signed FlClashCore.exe
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.go_release_tag }}
+        run: |
+          New-Item -ItemType Directory -Force -Path dl, app_go | Out-Null
+          gh release download "$env:TAG" -R "$env:GITHUB_REPOSITORY" -p 'WONDERX-V1-0.9.3-windows-amd64.zip' -D dl
+          $zip = Get-ChildItem dl -Filter '*.zip' | Select-Object -First 1
+          Expand-Archive -LiteralPath $zip.FullName -DestinationPath app_go -Force
+          Get-FileHash app_go/FlClashCore.exe -Algorithm SHA256 | Format-List
+          Get-ChildItem app_go/data/flutter_assets/assets/data | Format-Table Name, Length
+
+      - name: Run Go / Rust Contract Diff Test
+        shell: pwsh
+        run: |
+          python .github/smoke/rust_go_contract.py `
+            --go-core app_go/FlClashCore.exe `
+            --rust-core core/target/release/FlClashCore.exe `
+            --app-dir app_go `
+            --realshape .github/smoke/realshape_sanitized.yaml `
+            --out-report contract-diff-report.md `
+            --logs-dir contract-logs
+          $ec = $LASTEXITCODE
+          if (Test-Path contract-diff-report.md) {
+            Get-Content contract-diff-report.md | Out-String | Add-Content -Path $env:GITHUB_STEP_SUMMARY
+          }
+          exit $ec
+
+      - name: Upload Contract Diff Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: contract-diff-${{ github.run_id }}
+          path: |
+            contract-diff-report.md
+            contract-logs/**
+          if-no-files-found: ignore
