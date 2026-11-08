@@ -27,7 +27,7 @@ env:
   PYTHONUNBUFFERED: '1'
 
 permissions:
-  contents: read
+  contents: write
   actions: read
 
 jobs:
@@ -102,6 +102,9 @@ jobs:
           New-Item -ItemType Directory -Force -Path dl, app_go | Out-Null
           gh release download "$env:TAG" -R "$env:GITHUB_REPOSITORY" -p 'WONDERX-V1-0.9.3-windows-amd64.zip' -D dl
           $zip = Get-ChildItem dl -Filter '*.zip' | Select-Object -First 1
+          if (-not $zip) {
+            throw "Failed to download WONDERX-V1-0.9.3-windows-amd64.zip from release $env:TAG"
+          }
           Expand-Archive -LiteralPath $zip.FullName -DestinationPath app_go -Force
           Get-FileHash app_go/FlClashCore.exe -Algorithm SHA256 | Format-List
           Get-ChildItem app_go/data/flutter_assets/assets/data | Format-Table Name, Length
