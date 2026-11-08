@@ -349,8 +349,9 @@ FLUTTER_GROUP_TYPES = ["Selector", "URLTest", "Fallback", "LoadBalance", "Relay"
 
 
 def flutter_groups(resp):
-    """Mirror buildGroups(): iterate result.all, keep entries whose type is in
-    GroupTypeExtension.valueList. Returns (groups, problems)."""
+    """Mirror buildGroups() + rule-mode currentGroupsState: iterate
+    result.all, keep entries whose type is in GroupTypeExtension.valueList and
+    whose hidden is exactly false. Returns (groups shown, problems)."""
     res = resp.get("result") or {}
     proxies = res.get("proxies") or {}
     out, problems = [], []
@@ -366,6 +367,12 @@ def flutter_groups(resp):
             problems.append("group %r has type %r the UI drops" % (name, raw.get("type")))
             continue
         members = [proxies.get(m) for m in (raw.get("all") or [])]
+        # lib/providers/state/proxies.dart currentGroupsState: in rule mode
+        # only `hidden == false` groups are shown (a missing key hides it).
+        if raw.get("hidden") is not False:
+            if name != "GLOBAL":
+                problems.append("group %r hidden in rule mode (hidden=%r)" % (name, raw.get("hidden")))
+            continue
         out.append((name, raw.get("type"), len([m for m in members if m])))
     return out, problems
 
@@ -435,7 +442,7 @@ async def realshape_session(core, root, label, app_dir, env, sub_text, tun, call
         groups, problems = flutter_groups(pl)
         proxies = (pl.get("result") or {}).get("proxies") or {}
         leaves = [n for n in names if n in proxies]
-        print("  [%s] UI groups=%s nodes=%d/%d problems=%s" % (label, groups, len(leaves), len(names), problems))
+        print("  [%s] UI (rule mode) groups=%s nodes=%d/%d problems=%s" % (label, groups, len(leaves), len(names), problems))
         fails += problems
         got = [g[0] for g in groups]
         for g in want_groups:
