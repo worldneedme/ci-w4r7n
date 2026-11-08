@@ -123,14 +123,14 @@ jobs:
           RUSTFLAGS: "-Awarnings"
         run: |
           cd core
-          cargo test -p wonderx-desktop --quiet -- --nocapture
+          cargo test -p wonderx-desktop --quiet -- --test-threads=1 --nocapture
 
       - name: Run wonderx-mobile contract tests (Linux)
         env:
           RUSTFLAGS: "-Awarnings"
         run: |
           cd core
-          cargo test -p wonderx-mobile --quiet -- --nocapture
+          cargo test -p wonderx-mobile --quiet -- --test-threads=1 --nocapture
 
       - name: Build Linux FlClashCore binary (for G13 verification)
         run: |
@@ -551,7 +551,7 @@ jobs:
           RUSTFLAGS: "-Awarnings"
         run: |
           cd core
-          cargo test -p wonderx-desktop --quiet -- --nocapture
+          cargo test -p wonderx-desktop --quiet -- --test-threads=1 --nocapture
 
       - name: Build FlClashCore.exe
         shell: bash
