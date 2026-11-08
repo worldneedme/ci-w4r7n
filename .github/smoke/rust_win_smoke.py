@@ -218,13 +218,16 @@ def summarize_proxies(resp):
 
 def start_1mb_server():
     class OneMbHandler(http.server.BaseHTTPRequestHandler):
-        payload = b"X" * (1024 * 1024 + 4096)
         def do_GET(self):
+            chunk = b"X" * 65536
+            total_chunks = 16  # 1048576 bytes
             self.send_response(200)
             self.send_header("Content-Type", "application/octet-stream")
-            self.send_header("Content-Length", str(len(self.payload)))
+            self.send_header("Content-Length", str(len(chunk) * total_chunks))
             self.end_headers()
-            self.wfile.write(self.payload)
+            for _ in range(total_chunks):
+                self.wfile.write(chunk)
+                time.sleep(0.02)
         def log_message(self, *args):
             pass
     srv = http.server.HTTPServer(("127.0.0.1", 0), OneMbHandler)
@@ -286,7 +289,7 @@ async def session(core, home, cwd, env, label, variants, setup_timeout):
 
             async def sample_rates():
                 nonlocal max_current_down, max_conn_count
-                for _ in range(30):
+                for _ in range(50):
                     rc, _ = await host.call("traffic.current", None, 5)
                     d = (rc.get("result") or {}).get("down", 0)
                     if d > max_current_down:
@@ -295,16 +298,16 @@ async def session(core, home, cwd, env, label, variants, setup_timeout):
                     c = r_cnt.get("result") or 0
                     if c > max_conn_count:
                         max_conn_count = c
-                    if download_done and max_current_down > 0:
+                    if download_done and max_current_down > 0 and max_conn_count > 0:
                         break
-                    await asyncio.sleep(0.1)
+                    await asyncio.sleep(0.05)
 
             rate_task = asyncio.create_task(sample_rates())
             try:
                 cmd = ["curl", "-s", "-S", "-x", "http://127.0.0.1:7890",
                        f"http://127.0.0.1:{srv_port}/1mb.bin",
                        "-o", "nul" if os.name == "nt" else "/dev/null"]
-                cp = subprocess.run(cmd, capture_output=True, timeout=15)
+                cp = await asyncio.to_thread(subprocess.run, cmd, capture_output=True, timeout=15)
                 if cp.returncode != 0:
                     print(f"  [{label}] curl 1MB download: code={cp.returncode} err={cp.stderr[:200]}")
             finally:
@@ -698,9 +701,11 @@ async def main():
             print("RUN %d real-shape: %s" % (i, "PASS" if not real_fail else "FAIL " + "; ".join(real_fail)))
             ok = ok and not real_fail
         verdicts.append(ok)
-        print("RUN %d: %s  (setup %.2fs, nodes=%s, error=%s)" % (
+        err_details = [f"{k}={val}" for k, val in r.items() if k.endswith("_error")]
+        print("RUN %d: %s  (setup %.2fs, nodes=%s, error=%s, err_details=%s)" % (
             i, "PASS" if ok else "FAIL", v.get("secs", -1), v.get("nodes"),
-            (v.get("error") or {}).get("message") if v.get("error") else ("TIMEOUT" if v.get("timeout") else None)))
+            (v.get("error") or {}).get("message") if v.get("error") else ("TIMEOUT" if v.get("timeout") else None),
+            err_details if err_details else "none"))
     print("\nSUMMARY:", " ".join("run%d=%s" % (i + 1, "PASS" if ok else "FAIL")
                                 for i, ok in enumerate(verdicts)))
     print("GATE:", "PASS" if all(verdicts) and len(verdicts) >= 5 else "FAIL")
