@@ -74,6 +74,11 @@ jobs:
           git clone git@github.com-core:worldneedme/wonderx-core-rs.git core
           cd core && git checkout ${{ inputs.core_commit }} && git log -1 --oneline
 
+      - name: Stub Scan (Zero Stub Gate)
+        shell: bash
+        run: |
+          python .github/smoke/stub_scan.py core/crates/wonderx-desktop/src/dispatch.rs core/crates/wonderx-mobile/src/dispatch.rs
+
       - uses: ilammy/setup-nasm@v1
       - uses: dtolnay/rust-toolchain@stable
         with:

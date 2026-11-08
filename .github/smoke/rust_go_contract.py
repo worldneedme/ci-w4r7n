@@ -263,7 +263,7 @@ def recursive_compare(path: str, go_val: Any, rust_val: Any, diff: DiffResult):
             elif sub_path in ("traffic.total.down", "traffic.total.up"):
                 if isinstance(go_val[k], (int, float)) and isinstance(rust_val[k], (int, float)):
                     if go_val[k] > 0 and rust_val[k] > 0:
-                        diff.add_whitelist(f"{sub_path}: both Go and Rust > 0 ({go_val[k]} vs {rust_val[k]})")
+                        pass  # Verified: both Go and Rust recorded traffic (> 0)
                     elif go_val[k] == 0 and rust_val[k] == 0:
                         pass
                     else:
@@ -272,7 +272,12 @@ def recursive_compare(path: str, go_val: Any, rust_val: Any, diff: DiffResult):
                     diff.add_fail(f"{sub_path}: invalid type: Go={type(go_val[k])}, Rust={type(rust_val[k])}")
             elif sub_path in ("traffic.current.up", "traffic.current.down"):
                 if isinstance(go_val[k], (int, float)) and isinstance(rust_val[k], (int, float)):
-                    diff.add_whitelist(f"{sub_path}: rate varies ({go_val[k]} vs {rust_val[k]})")
+                    if go_val[k] >= 0 and rust_val[k] >= 0:
+                        pass  # Valid rate numbers
+                    else:
+                        diff.add_fail(f"{sub_path}: rates must be non-negative, got Go={go_val[k]}, Rust={rust_val[k]}")
+                else:
+                    diff.add_fail(f"{sub_path}: invalid rate type: Go={type(go_val[k])}, Rust={type(rust_val[k])}")
             elif sub_path in ("connection.list.downloadTotal", "connection.list.uploadTotal", "connection.list.memory"):
                 diff.add_whitelist(f"{sub_path}: connection stats vary ({go_val[k]} vs {rust_val[k]})")
             elif sub_path in ("proxy.testDelay.delay", "proxy.testDelay.value"):
@@ -292,8 +297,6 @@ def recursive_compare(path: str, go_val: Any, rust_val: Any, diff: DiffResult):
                 diff.add_fail(f"{path}: proxy/group list length mismatch: Go={len(go_val)}, Rust={len(rust_val)}")
             elif path.startswith("connection.list.connections") or path == "connection.list":
                 diff.add_whitelist(f"{path}: active connection list size varies ({len(go_val)} vs {len(rust_val)})")
-            elif "traffic" in path:
-                diff.add_whitelist(f"{path}: traffic counters list varies ({len(go_val)} vs {len(rust_val)})")
             else:
                 diff.add_fail(f"{path}: list length mismatch: Go={len(go_val)}, Rust={len(rust_val)}")
 

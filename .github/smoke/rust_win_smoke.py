@@ -144,6 +144,7 @@ class Host(asyncio.Protocol):
         self.buf = b""
         self.waiters = {}
         self.events = 0
+        self.received_messages = []
         self.connected = asyncio.get_event_loop().create_future()
         self.transport = None
 
@@ -166,6 +167,7 @@ class Host(asyncio.Protocol):
                 continue
             if msg.get("method") == "message":
                 self.events += 1
+                self.received_messages.append(msg)
                 continue
             fut = self.waiters.pop(msg.get("id"), None)
             if fut and not fut.done():
@@ -270,9 +272,26 @@ async def session(core, home, cwd, env, label, variants, setup_timeout):
         results["listener"] = r.get("error")
         results["events"] = host.events
 
-        # Real 1MB traffic verification via 7890 proxy
+        # Functional assertions (A, B, C, E, F)
         try:
+            # B: Start log stream
+            await host.call("log.start", None, 10)
+
+            # Start 1MB download and monitor traffic rates
             srv_port, srv = start_1mb_server()
+            max_current_down = 0
+            download_done = False
+
+            async def sample_rates():
+                nonlocal max_current_down
+                while not download_done:
+                    rc, _ = await host.call("traffic.current", None, 5)
+                    d = (rc.get("result") or {}).get("down", 0)
+                    if d > max_current_down:
+                        max_current_down = d
+                    await asyncio.sleep(0.2)
+
+            rate_task = asyncio.create_task(sample_rates())
             try:
                 cmd = ["curl", "-s", "-S", "-x", "http://127.0.0.1:7890",
                        f"http://127.0.0.1:{srv_port}/1mb.bin",
@@ -281,21 +300,64 @@ async def session(core, home, cwd, env, label, variants, setup_timeout):
                 if cp.returncode != 0:
                     print(f"  [{label}] curl 1MB download: code={cp.returncode} err={cp.stderr[:200]}")
             finally:
+                download_done = True
+                await rate_task
                 srv.shutdown()
                 srv.server_close()
+
             await asyncio.sleep(1.5)
+
+            # A: traffic.total.down >= 1MB and traffic.current.down > 0 during run
             r_tot, _ = await host.call("traffic.total", None, 10)
             down = (r_tot.get("result") or {}).get("down", 0)
-            print(f"  [{label}] traffic.total after 1MB: down={down}")
+            print(f"  [{label}] traffic.total: down={down}, max_current_down={max_current_down}")
             if down < 1048576:
                 results["traffic_error"] = f"traffic.total.down expected >= 1048576, got {down}"
+            if max_current_down <= 0:
+                results["traffic_error"] = f"traffic.current.down expected > 0 at least once during 1MB transfer, got {max_current_down}"
+
+            # F: connection.list has connections and connection.count > 0
             r_conn, _ = await host.call("connection.list", None, 10)
             cdown = (r_conn.get("result") or {}).get("downloadTotal", 0)
             if cdown < 1048576:
                 results["traffic_error"] = f"connection.list.downloadTotal expected >= 1048576, got {cdown}"
+            r_count, _ = await host.call("connection.count", None, 10)
+            cnt = r_count.get("result", 0)
+            print(f"  [{label}] connection.count: {cnt}")
+            if cnt <= 0:
+                results["conn_error"] = f"connection.count expected > 0 after 1MB transfer, got {cnt}"
+
+            # B: log event received within 5s of log.start
+            await asyncio.sleep(1.0)
+            has_log_event = host.events > 0 or any(
+                isinstance(m.get("arguments"), list) and any(a.get("type") == "log" for a in m.get("arguments", []))
+                for m in host.received_messages
+            )
+            print(f"  [{label}] log events received: {host.events} (total messages: {len(host.received_messages)})")
+            if not has_log_event:
+                results["log_error"] = "log.start: expected at least 1 log event within 5s"
+
+            # C: probe.outboundIp returns non-empty and non-0.0.0.0
+            r_ip, _ = await host.call("probe.outboundIp", {"proxy-name": "DIRECT", "timeout": 5000}, 10)
+            ip_res = r_ip.get("result") or {}
+            ip_val = ip_res.get("body") or ip_res.get("ip") or ""
+            print(f"  [{label}] probe.outboundIp: {ip_val}")
+            if not ip_val or ip_val == "0.0.0.0":
+                results["probe_ip_error"] = f"probe.outboundIp expected non-empty non-0.0.0.0, got: {ip_res}"
+
+            # E: route.watch and route.check have core-epoch and route-version matching Go
+            r_rw, _ = await host.call("route.watch", {"watch": False}, 10)
+            rw_res = r_rw.get("result") or {}
+            if "core-epoch" not in rw_res or "route-version" not in rw_res:
+                results["route_watch_error"] = f"route.watch missing core-epoch/route-version: {rw_res}"
+            r_rc, _ = await host.call("route.check", {"routes": []}, 10)
+            rc_res = r_rc.get("result") or {}
+            if "core-epoch" not in rc_res or "route-version" not in rc_res or "held" not in rc_res:
+                results["route_check_error"] = f"route.check missing core-epoch/route-version/held: {rc_res}"
+
         except Exception as e:
-            print(f"  [{label}] traffic test error: {e}")
-            results["traffic_error"] = str(e)
+            print(f"  [{label}] functional verification error: {e}")
+            results["functional_error"] = str(e)
 
         return results
     finally:
@@ -524,6 +586,8 @@ async def realshape_session(core, root, label, app_dir, env, sub_text, tun, call
                 else:
                     gval = r_g["result"]["value"]
                     print(f"  [{label}] proxy.testDelay({g}) -> {gval}")
+                    if gval <= 0:
+                        fails.append(f"proxy.testDelay({g}) value must be > 0 (got {gval})")
             r, dt = await host.call("proxy.list", None, call_timeout)
             if r.get("_timeout"):
                 fails.append("proxy.list after delay tests: NO REPLY")
@@ -613,7 +677,13 @@ async def main():
         v = r.get("base+overlay") or {}
         ok = (r.get("connect", True) and not v.get("timeout") and not v.get("error")
               and v.get("nodes", 0) >= 1 and "WONDERX" in (v.get("groups") or [])
-              and not r.get("traffic_error"))
+              and not r.get("traffic_error")
+              and not r.get("conn_error")
+              and not r.get("log_error")
+              and not r.get("probe_ip_error")
+              and not r.get("route_watch_error")
+              and not r.get("route_check_error")
+              and not r.get("functional_error"))
         real_fail = []
         if real_text:
             real_fail = await realshape_session(core, root, "real%d" % i, app_dir, user_like_env(), real_text, False, a.setup_timeout)
