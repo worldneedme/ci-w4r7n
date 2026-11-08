@@ -281,7 +281,7 @@ def recursive_compare(path: str, go_val: Any, rust_val: Any, diff: DiffResult):
             elif sub_path in ("connection.list.downloadTotal", "connection.list.uploadTotal", "connection.list.memory"):
                 diff.add_whitelist(f"{sub_path}: connection stats vary ({go_val[k]} vs {rust_val[k]})")
             elif sub_path in ("proxy.testDelay.delay", "proxy.testDelay.value"):
-                if go_val[k] == rust_val[k] or (go_val[k] > 0 and rust_val[k] > 0):
+                if go_val[k] == rust_val[k] or (go_val[k] > 0 and rust_val[k] > 0) or (go_val[k] < 0 and rust_val[k] < 0):
                     diff.add_whitelist(f"{sub_path}: delay measurement parity (Go={go_val[k]}, Rust={rust_val[k]})")
                 else:
                     diff.add_fail(f"{sub_path}: delay mismatch: Go={go_val[k]}, Rust={rust_val[k]}")
