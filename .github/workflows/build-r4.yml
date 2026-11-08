@@ -6,11 +6,11 @@ on:
       tag:
         description: 'Release tag'
         required: true
-        default: 'wonderx-v1-0.9.3-pure-rust-test-20261108-r11'
+        default: 'wonderx-v1-0.9.3-pure-rust-test-20261108-r12'
       core_commit:
         description: 'wonderx-core-rs commit'
         required: true
-        default: '5eb9341359987ff131af4e0b698d10791967437d'
+        default: 'cd15a6d1c7024ece1942d781eefb0ae5ee67c4f8'
       client_ref:
         description: 'xxdmanfl0609 commit/branch'
         required: true
