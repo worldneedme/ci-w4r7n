@@ -603,9 +603,33 @@ jobs:
 
       - name: Package Windows Desktop
         working-directory: client
+        shell: bash
         run: |
           flutter pub get
-          dart setup.dart windows -v
+          DLL_DIR=".dart_tool/hooks_runner/shared/sqlite3/build/download-98b4be67"
+          mkdir -p "$DLL_DIR"
+          echo "Pre-fetching sqlite3.x64.windows.dll..."
+          curl -fL --retry 5 --retry-delay 2 "https://github.com/simolus3/sqlite3.dart/releases/download/sqlite3-3.7.0/sqlite3.x64.windows.dll" -o "$DLL_DIR/sqlite3.dll"
+          EXPECTED="98b4be674137b85ec111a7a29223e87aa41c3e964d61f73602471ddd7b9c56ce"
+          ACTUAL=$(sha256sum "$DLL_DIR/sqlite3.dll" | awk '{print $1}')
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "ERROR: sqlite3.dll sha256 mismatch ($ACTUAL vs $EXPECTED)"
+            exit 1
+          fi
+          echo "sqlite3.dll pre-fetched and verified: $ACTUAL"
+          for i in 1 2 3; do
+            echo "Packaging Windows attempt $i..."
+            if dart setup.dart windows -v; then
+              echo "Packaging Windows succeeded on attempt $i"
+              break
+            fi
+            if [ "$i" -eq 3 ]; then
+              echo "Packaging Windows failed after 3 attempts"
+              exit 1
+            fi
+            echo "Packaging failed, retrying in 5s..."
+            sleep 5
+          done
 
       - name: Windows startup smoke test
         working-directory: client
