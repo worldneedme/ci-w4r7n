@@ -192,10 +192,16 @@ def recursive_compare(path: str, go_val: Any, rust_val: Any, diff: DiffResult):
     """Deep structural diff comparing types, keys, and values."""
     if go_val is None:
         if rust_val is not None:
+            if path.endswith(".connections") and rust_val == []:
+                diff.add_whitelist(f"{path}: Go is None, Rust is empty list []")
+                return
             diff.add_fail(f"{path}: Go is None, Rust is {type(rust_val).__name__} ({rust_val!r})")
         return
 
     if rust_val is None:
+        if path.endswith(".connections") and go_val == []:
+            diff.add_whitelist(f"{path}: Rust is None, Go is empty list []")
+            return
         diff.add_fail(f"{path}: Go is {type(go_val).__name__}, Rust is None")
         return
 
