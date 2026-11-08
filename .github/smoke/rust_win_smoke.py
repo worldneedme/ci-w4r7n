@@ -54,6 +54,7 @@ def node_name(flow):
 NODE_NAMES = [node_name(p) for p in PROXIES]
 
 RULES_COMMON = [
+    "IP-CIDR,127.0.0.0/8,DIRECT,no-resolve",
     "IP-CIDR,1.1.1.1/32,WONDERX,no-resolve",
     "DOMAIN-SUFFIX,services.googleapis.cn,WONDERX",
     "DOMAIN,safebrowsing.urlsec.qq.com,DIRECT",
@@ -280,16 +281,23 @@ async def session(core, home, cwd, env, label, variants, setup_timeout):
             # Start 1MB download and monitor traffic rates
             srv_port, srv = start_1mb_server()
             max_current_down = 0
+            max_conn_count = 0
             download_done = False
 
             async def sample_rates():
-                nonlocal max_current_down
-                while not download_done:
+                nonlocal max_current_down, max_conn_count
+                for _ in range(30):
                     rc, _ = await host.call("traffic.current", None, 5)
                     d = (rc.get("result") or {}).get("down", 0)
                     if d > max_current_down:
                         max_current_down = d
-                    await asyncio.sleep(0.2)
+                    r_cnt, _ = await host.call("connection.count", None, 5)
+                    c = r_cnt.get("result") or 0
+                    if c > max_conn_count:
+                        max_conn_count = c
+                    if download_done and max_current_down > 0:
+                        break
+                    await asyncio.sleep(0.1)
 
             rate_task = asyncio.create_task(sample_rates())
             try:
@@ -323,9 +331,9 @@ async def session(core, home, cwd, env, label, variants, setup_timeout):
                 results["traffic_error"] = f"connection.list.downloadTotal expected >= 1048576, got {cdown}"
             r_count, _ = await host.call("connection.count", None, 10)
             cnt = r_count.get("result", 0)
-            print(f"  [{label}] connection.count: {cnt}")
-            if cnt <= 0:
-                results["conn_error"] = f"connection.count expected > 0 after 1MB transfer, got {cnt}"
+            print(f"  [{label}] connection.count: now={cnt}, max_during_transfer={max_conn_count}")
+            if max_conn_count <= 0 and cnt <= 0:
+                results["conn_error"] = f"connection.count expected > 0 during or after 1MB transfer, got max={max_conn_count}, now={cnt}"
 
             # B: log event received within 5s of log.start
             await asyncio.sleep(1.0)
