@@ -14,6 +14,7 @@ Exit 0 only if every gated (user-like) iteration passed.
 """
 import argparse
 import asyncio
+import http.server
 import json
 import os
 import shutil
@@ -21,6 +22,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import uuid
 
@@ -211,6 +213,23 @@ def summarize_proxies(resp):
     return leaves, missing, groups, wx
 
 
+def start_1mb_server():
+    class OneMbHandler(http.server.BaseHTTPRequestHandler):
+        payload = b"X" * (1024 * 1024 + 4096)
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(len(self.payload)))
+            self.end_headers()
+            self.wfile.write(self.payload)
+        def log_message(self, *args):
+            pass
+    srv = http.server.HTTPServer(("127.0.0.1", 0), OneMbHandler)
+    t = threading.Thread(target=srv.serve_forever, daemon=True)
+    t.start()
+    return srv.server_port, srv
+
+
 async def session(core, home, cwd, env, label, variants, setup_timeout):
     """One core process; runs each variant's config.setup + proxy.list."""
     loop = asyncio.get_event_loop()
@@ -250,6 +269,34 @@ async def session(core, home, cwd, env, label, variants, setup_timeout):
         print("  [%s] listener.start %.2fs -> %s" % (label, dt, short(r)))
         results["listener"] = r.get("error")
         results["events"] = host.events
+
+        # Real 1MB traffic verification via 7890 proxy
+        try:
+            srv_port, srv = start_1mb_server()
+            try:
+                cmd = ["curl", "-s", "-S", "-x", "http://127.0.0.1:7890",
+                       f"http://127.0.0.1:{srv_port}/1mb.bin",
+                       "-o", "nul" if os.name == "nt" else "/dev/null"]
+                cp = subprocess.run(cmd, capture_output=True, timeout=15)
+                if cp.returncode != 0:
+                    print(f"  [{label}] curl 1MB download: code={cp.returncode} err={cp.stderr[:200]}")
+            finally:
+                srv.shutdown()
+                srv.server_close()
+            await asyncio.sleep(1.5)
+            r_tot, _ = await host.call("traffic.total", None, 10)
+            down = (r_tot.get("result") or {}).get("down", 0)
+            print(f"  [{label}] traffic.total after 1MB: down={down}")
+            if down < 1048576:
+                results["traffic_error"] = f"traffic.total.down expected >= 1048576, got {down}"
+            r_conn, _ = await host.call("connection.list", None, 10)
+            cdown = (r_conn.get("result") or {}).get("downloadTotal", 0)
+            if cdown < 1048576:
+                results["traffic_error"] = f"connection.list.downloadTotal expected >= 1048576, got {cdown}"
+        except Exception as e:
+            print(f"  [{label}] traffic test error: {e}")
+            results["traffic_error"] = str(e)
+
         return results
     finally:
         try:
@@ -462,6 +509,21 @@ async def realshape_session(core, root, label, app_dir, env, sub_text, tun, call
                 fails.append("proxy.testDelay: %d calls got no reply" % noreply)
             if proc.poll() is not None:
                 fails.append("core exited (code %s) during delay tests" % proc.returncode)
+            # Group delay tests: verify group testDelay forwards to now node and returns valid value
+            for g in ("自动选择", "故障转移"):
+                r_g, dt_g = await host.call("proxy.testDelay", {
+                    "proxy-name": g,
+                    "test-url": "https://www.gstatic.com/generate_204",
+                    "timeout": 5000,
+                }, 40)
+                check(f"proxy.testDelay({g})", r_g, dt_g)
+                if r_g.get("_timeout"):
+                    fails.append(f"proxy.testDelay({g}): NO REPLY")
+                elif "value" not in (r_g.get("result") or {}):
+                    fails.append(f"proxy.testDelay({g}): missing 'value' in response: {r_g}")
+                else:
+                    gval = r_g["result"]["value"]
+                    print(f"  [{label}] proxy.testDelay({g}) -> {gval}")
             r, dt = await host.call("proxy.list", None, call_timeout)
             if r.get("_timeout"):
                 fails.append("proxy.list after delay tests: NO REPLY")
@@ -550,7 +612,8 @@ async def main():
                           flutter_variants(prof, home, False), a.setup_timeout)
         v = r.get("base+overlay") or {}
         ok = (r.get("connect", True) and not v.get("timeout") and not v.get("error")
-              and v.get("nodes", 0) >= 1 and "WONDERX" in (v.get("groups") or []))
+              and v.get("nodes", 0) >= 1 and "WONDERX" in (v.get("groups") or [])
+              and not r.get("traffic_error"))
         real_fail = []
         if real_text:
             real_fail = await realshape_session(core, root, "real%d" % i, app_dir, user_like_env(), real_text, False, a.setup_timeout)

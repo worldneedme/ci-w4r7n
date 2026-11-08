@@ -9,6 +9,7 @@ and verifying parity against the Flutter client's expectations.
 import argparse
 import asyncio
 import copy
+import http.server
 import json
 import os
 import platform
@@ -16,6 +17,7 @@ import shutil
 import struct
 import subprocess
 import sys
+import threading
 import time
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
@@ -258,12 +260,26 @@ def recursive_compare(path: str, go_val: Any, rust_val: Any, diff: DiffResult):
                     diff.add_whitelist(f"{sub_path}: memory stats value varies ({go_val[k]} vs {rust_val[k]})")
                 else:
                     diff.add_fail(f"{sub_path}: Rust value must be positive integer, got {rust_val[k]!r}")
-            elif sub_path in ("traffic.current.up", "traffic.current.down", "traffic.total.up", "traffic.total.down"):
-                diff.add_whitelist(f"{sub_path}: traffic counters vary ({go_val[k]} vs {rust_val[k]})")
+            elif sub_path in ("traffic.total.down", "traffic.total.up"):
+                if isinstance(go_val[k], (int, float)) and isinstance(rust_val[k], (int, float)):
+                    if go_val[k] > 0 and rust_val[k] > 0:
+                        diff.add_whitelist(f"{sub_path}: both Go and Rust > 0 ({go_val[k]} vs {rust_val[k]})")
+                    elif go_val[k] == 0 and rust_val[k] == 0:
+                        pass
+                    else:
+                        diff.add_fail(f"{sub_path}: both must be > 0 with traffic, got Go={go_val[k]}, Rust={rust_val[k]}")
+                else:
+                    diff.add_fail(f"{sub_path}: invalid type: Go={type(go_val[k])}, Rust={type(rust_val[k])}")
+            elif sub_path in ("traffic.current.up", "traffic.current.down"):
+                if isinstance(go_val[k], (int, float)) and isinstance(rust_val[k], (int, float)):
+                    diff.add_whitelist(f"{sub_path}: rate varies ({go_val[k]} vs {rust_val[k]})")
             elif sub_path in ("connection.list.downloadTotal", "connection.list.uploadTotal", "connection.list.memory"):
                 diff.add_whitelist(f"{sub_path}: connection stats vary ({go_val[k]} vs {rust_val[k]})")
             elif sub_path in ("proxy.testDelay.delay", "proxy.testDelay.value"):
-                diff.add_whitelist(f"{sub_path}: delay measurement varies ({go_val[k]} vs {rust_val[k]})")
+                if go_val[k] == rust_val[k] or (go_val[k] > 0 and rust_val[k] > 0):
+                    diff.add_whitelist(f"{sub_path}: delay measurement parity (Go={go_val[k]}, Rust={rust_val[k]})")
+                else:
+                    diff.add_fail(f"{sub_path}: delay mismatch: Go={go_val[k]}, Rust={rust_val[k]}")
             elif sub_path in ("route.watch.core-epoch", "route.watch.route-version", "route.check.core-epoch", "route.check.route-version"):
                 diff.add_whitelist(f"{sub_path}: epoch/version numeric variance ({go_val[k]} vs {rust_val[k]})")
             else:
@@ -379,7 +395,7 @@ def make_isolated_home(root: str, name: str, app_dir: str, config_yaml: Optional
     return home, prof_path
 
 
-def make_dart_overlay(base_config: Dict[str, Any], home: str) -> str:
+def make_dart_overlay(base_config: Dict[str, Any], home: str, mixed_port: int = 7890) -> str:
     raw = dict(base_config or {})
     raw.pop("rule", None)
     raw.update({
@@ -392,7 +408,7 @@ def make_dart_overlay(base_config: Dict[str, Any], home: str) -> str:
     raw.setdefault("ipv6", False)
     raw.update({
         "log-level": "error", "keep-alive-interval": 30, "keep-alive-idle": 15,
-        "disable-keep-alive": False, "routing-mark": 0, "mixed-port": 7890,
+        "disable-keep-alive": False, "routing-mark": 0, "mixed-port": mixed_port,
         "port": 0, "socks-port": 0, "redir-port": 0, "tproxy-port": 0,
         "find-process-mode": "off", "allow-lan": False, "authentication": [],
         "skip-auth-prefixes": [], "mode": "rule",
@@ -492,8 +508,8 @@ async def execute_contract_suite(
     await step("PROFILE-02", "profile.outbounds", {"path": prof_go}, {"path": prof_rust})
 
     # 4. profile.build
-    overlay_go = make_dart_overlay(cfg_go, home_go)
-    overlay_rust = make_dart_overlay(cfg_rust, home_rust)
+    overlay_go = make_dart_overlay(cfg_go, home_go, 27890)
+    overlay_rust = make_dart_overlay(cfg_rust, home_rust, 27891)
     await step("PROFILE-03", "profile.build", {"path": prof_go, "overlay": overlay_go}, {"path": prof_rust, "overlay": overlay_rust})
 
     # 5. config.setup (with base and overlay)
@@ -531,9 +547,19 @@ async def execute_contract_suite(
     # 8. proxy.definition
     await step("PROXY-03", "proxy.definition", {"name": first_node})
 
-    # 9. proxy.testDelay
+    # 9. proxy.testDelay (leaf node and strategy groups)
     await step("PROXY-04", "proxy.testDelay", {
         "proxy-name": first_node,
+        "test-url": "https://www.gstatic.com/generate_204",
+        "timeout": 3000,
+    })
+    await step("PROXY-05", "proxy.testDelay", {
+        "proxy-name": "自动选择",
+        "test-url": "https://www.gstatic.com/generate_204",
+        "timeout": 3000,
+    })
+    await step("PROXY-06", "proxy.testDelay", {
+        "proxy-name": "故障转移",
         "test-url": "https://www.gstatic.com/generate_204",
         "timeout": 3000,
     })
@@ -543,20 +569,47 @@ async def execute_contract_suite(
     await step("MODE-02", "config.update", {"options": {"mode": "direct"}})
     await step("MODE-03", "config.update", {"options": {"mode": "rule"}})
 
-    # 11. Traffic queries
+    # 11. Listeners and Real Traffic Generation
+    await step("LOG-01", "log.start", None)
+    await step("LOG-02", "log.stop", None)
+    await step("LISTENER-01", "listener.start", None)
+
+    # Generate real proxy traffic to verify traffic sampling & rate calculation
+    try:
+        class ContractHttpHandler(http.server.BaseHTTPRequestHandler):
+            payload = b"Y" * (128 * 1024)
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header("Content-Type", "application/octet-stream")
+                self.send_header("Content-Length", str(len(self.payload)))
+                self.end_headers()
+                self.wfile.write(self.payload)
+            def log_message(self, *args):
+                pass
+        httpd = http.server.HTTPServer(("127.0.0.1", 0), ContractHttpHandler)
+        http_port = httpd.server_port
+        t_http = threading.Thread(target=httpd.serve_forever, daemon=True)
+        t_http.start()
+        try:
+            subprocess.run(["curl", "-s", "-S", "-x", "http://127.0.0.1:27890", f"http://127.0.0.1:{http_port}/data.bin", "-o", os.devnull], timeout=10)
+            subprocess.run(["curl", "-s", "-S", "-x", "http://127.0.0.1:27891", f"http://127.0.0.1:{http_port}/data.bin", "-o", os.devnull], timeout=10)
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+        await asyncio.sleep(1.5)
+    except Exception as e:
+        print(f"Warning: contract traffic generation error: {e}")
+
+    # 12. Traffic queries (after real traffic passed)
     await step("TRAFFIC-01", "traffic.current", {"only-proxy": False})
     await step("TRAFFIC-02", "traffic.total", {"only-proxy": False})
     await step("TRAFFIC-03", "traffic.reset", None)
 
-    # 12. Connections
+    # 13. Connections
     await step("CONN-01", "connection.list", None)
     await step("CONN-02", "connection.count", None)
     await step("CONN-03", "connection.closeAll", None)
 
-    # 13. Logs & Listeners
-    await step("LOG-01", "log.start", None)
-    await step("LOG-02", "log.stop", None)
-    await step("LISTENER-01", "listener.start", None)
     await step("LISTENER-02", "listener.stop", None)
 
     # 14. Routes & DNS
