@@ -333,6 +333,156 @@ def blackhole_github():
         print("hosts: could not blackhole:", e)
 
 
+# ---------------------------------------------------------------------------
+# Real-shape replica: realshape_sanitized.yaml mirrors the production
+# subscription's structure (30 nodes: vless ws/reality/xhttp+download-settings,
+# trojan, juicity hop, hysteria2 ports, mieru, ss-2022, anytls; 3 groups with
+# the branded unicode name; 530 rules; fallback-filter DNS) with every server,
+# credential, SNI, path and rule payload replaced by dummies.
+# It is driven through the exact Flutter profile-update path:
+#   config.validate(temp file) -> profile.base -> config.setup(base+overlay)
+#   -> proxy.list (checked the way lib/common/task.dart buildGroups reads it)
+#   -> listener.start -> background health checks -> proxy.testDelay x all
+#   -> core still alive and answering.
+# ---------------------------------------------------------------------------
+FLUTTER_GROUP_TYPES = ["Selector", "URLTest", "Fallback", "LoadBalance", "Relay"]
+
+
+def flutter_groups(resp):
+    """Mirror buildGroups(): iterate result.all, keep entries whose type is in
+    GroupTypeExtension.valueList. Returns (groups, problems)."""
+    res = resp.get("result") or {}
+    proxies = res.get("proxies") or {}
+    out, problems = [], []
+    if not isinstance(res.get("all"), list):
+        problems.append("result.all missing")
+        return out, problems
+    for name in res["all"]:
+        raw = proxies.get(name)
+        if not isinstance(raw, dict):
+            problems.append("all[] names a missing entry")
+            continue
+        if raw.get("type") not in FLUTTER_GROUP_TYPES:
+            problems.append("group %r has type %r the UI drops" % (name, raw.get("type")))
+            continue
+        members = [proxies.get(m) for m in (raw.get("all") or [])]
+        out.append((name, raw.get("type"), len([m for m in members if m])))
+    return out, problems
+
+
+def realshape_expect(yaml_text):
+    names, groups = [], []
+    sect = None
+    for line in yaml_text.splitlines():
+        if not line.startswith(" ") and line.endswith(":"):
+            sect = line[:-1]
+        elif sect == "proxies" and line.startswith("- name: "):
+            names.append(json.loads(line[8:]) if line[8:].startswith('"') else line[8:])
+        elif sect == "proxy-groups" and line.startswith("- name: "):
+            groups.append(json.loads(line[8:]) if line[8:].startswith('"') else line[8:])
+    return names, groups
+
+
+async def realshape_session(core, root, label, app_dir, env, sub_text, tun, call_timeout):
+    names, want_groups = realshape_expect(sub_text)
+    home, prof, _ = make_home(root, label, app_dir, sub_text)
+    tmp = os.path.join(home, "tmp-download.yaml")
+    with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(sub_text)
+    loop = asyncio.get_event_loop()
+    host = Host()
+    if os.name == "nt":
+        pipe = r"\\.\pipe\wxreal_%s" % uuid.uuid4().hex[:12]
+        servers = await loop.start_serving_pipe(lambda: host, pipe)
+    else:  # local reproduction on Linux
+        pipe = "/tmp/wxreal_%s.sock" % uuid.uuid4().hex[:12]
+        servers = [await loop.create_unix_server(lambda: host, pipe)]
+    logf = open(os.path.join(home, "core-stderr.log"), "wb")
+    proc = subprocess.Popen([core, pipe], cwd=app_dir, env=env, stdout=logf, stderr=logf)
+    fails = []
+
+    def check(step, r, dt):
+        if r.get("_timeout"):
+            fails.append("%s: NO REPLY within %ss" % (step, call_timeout))
+        elif r.get("_lost"):
+            fails.append("%s: core gone" % step)
+        print("  [%s] %s %.2fs -> %s" % (label, step, dt, short(r, 300)))
+
+    try:
+        try:
+            await asyncio.wait_for(host.connected, 15)
+        except asyncio.TimeoutError:
+            return ["core never connected (exit=%s)" % proc.poll()]
+        r, dt = await host.call("core.init", {"home-dir": home, "version": 1}, call_timeout); check("core.init", r, dt)
+        r, dt = await host.call("config.validate", {"path": tmp}, call_timeout); check("config.validate", r, dt)
+        if r.get("result") or r.get("error"):
+            fails.append("config.validate reported an issue: %s" % short(r.get("result") or r.get("error"), 200))
+        pb, dt = await host.call("profile.base", {"path": prof}, call_timeout); check("profile.base", pb, dt)
+        cfg = (pb.get("result") or {}).get("config")
+        ov = json.loads(dart_like_overlay(cfg, home))
+        if tun:
+            ov["tun"].update({"enable": True, "auto-route": True, "route-address": []})
+        args = {"base": {"path": prof, "overlay": json.dumps(ov, ensure_ascii=False)},
+                "selected-map": {}, "options": {"test-url": "https://www.gstatic.com/generate_204",
+                "skip-cert-verify": False, "delay-test-timeout": 5000, "mitm-capture": False}}
+        r, dt = await host.call("config.setup", args, call_timeout); check("config.setup", r, dt)
+        if r.get("error"):
+            fails.append("config.setup error: %s" % short(r["error"], 300))
+        pl, dt = await host.call("proxy.list", None, call_timeout)
+        print("  [%s] proxy.list %.2fs" % (label, dt))
+        if pl.get("_timeout"):
+            fails.append("proxy.list: NO REPLY")
+        groups, problems = flutter_groups(pl)
+        proxies = (pl.get("result") or {}).get("proxies") or {}
+        leaves = [n for n in names if n in proxies]
+        print("  [%s] UI groups=%s nodes=%d/%d problems=%s" % (label, groups, len(leaves), len(names), problems))
+        fails += problems
+        got = [g[0] for g in groups]
+        for g in want_groups:
+            if g not in got:
+                fails.append("UI would not show group %r" % g)
+        if len(leaves) < len(names):
+            fails.append("nodes missing: %d/%d" % (len(leaves), len(names)))
+        r, dt = await host.call("listener.start", None, call_timeout); check("listener.start", r, dt)
+        await asyncio.sleep(15)
+        if proc.poll() is not None:
+            fails.append("core exited (code %s) during health checks" % proc.returncode)
+        else:
+            res = await asyncio.gather(*[host.call("proxy.testDelay", {"proxy-name": n, "test-url": "https://www.gstatic.com/generate_204", "timeout": 5000}, 40) for n in names])
+            noreply = sum(1 for r, _ in res if r.get("_timeout"))
+            print("  [%s] testDelay x%d: no-reply=%d" % (label, len(res), noreply))
+            if noreply:
+                fails.append("proxy.testDelay: %d calls got no reply" % noreply)
+            if proc.poll() is not None:
+                fails.append("core exited (code %s) during delay tests" % proc.returncode)
+            r, dt = await host.call("proxy.list", None, call_timeout)
+            if r.get("_timeout"):
+                fails.append("proxy.list after delay tests: NO REPLY")
+            r, dt = await host.call("config.validate", {"path": tmp}, call_timeout); check("config.validate(again)", r, dt)
+        return fails
+    except ConnectionError as e:
+        fails.append("pipe closed: %s (core exit=%s)" % (e, proc.poll()))
+        return fails
+    finally:
+        try:
+            host.transport and host.transport.close()
+        except Exception:
+            pass
+        for s in servers:
+            s.close()
+        try:
+            proc.wait(5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        logf.close()
+        with open(os.path.join(home, "core-stderr.log"), "rb") as fh:
+            data = fh.read().decode("utf-8", "replace")
+        bad = [l for l in data.splitlines() if "panicked" in l or "ERROR" in l]
+        print("  [%s] core exit=%s; panic/ERROR lines: %d" % (label, proc.poll(), len(bad)))
+        for l in bad[:15]:
+            print("      | " + l[:300])
+
+
 async def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--core", required=True)
@@ -341,6 +491,7 @@ async def main():
     ap.add_argument("--out", default="smoke-out")
     ap.add_argument("--setup-timeout", type=int, default=90)
     ap.add_argument("--diagnostics", action="store_true")
+    ap.add_argument("--realshape", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "realshape_sanitized.yaml"))
     a = ap.parse_args()
     core = os.path.abspath(a.core)
     app_dir = os.path.abspath(a.app_dir)
@@ -358,6 +509,15 @@ async def main():
         print("  geo assets copied into home:", copied)
         await session(core, home, home, dict(os.environ, RUST_LOG="info"), "diagA",
                       flutter_variants(prof, home), a.setup_timeout)
+
+    real_text = None
+    if a.realshape and os.path.exists(a.realshape):
+        with open(a.realshape, encoding="utf-8") as fh:
+            real_text = fh.read()
+    if a.diagnostics and real_text:
+        print("\n===== DIAG R: real-shape replica, Flutter profile-update path, TUN on =====")
+        f = await realshape_session(core, root, "realTun", app_dir, user_like_env(), real_text, True, a.setup_timeout)
+        print("  DIAG R (tun):", "PASS" if not f else "FAIL " + "; ".join(f))
 
     blackhole_github()
 
@@ -384,6 +544,11 @@ async def main():
         v = r.get("base+overlay") or {}
         ok = (r.get("connect", True) and not v.get("timeout") and not v.get("error")
               and v.get("nodes", 0) >= 1 and "WONDERX" in (v.get("groups") or []))
+        real_fail = []
+        if real_text:
+            real_fail = await realshape_session(core, root, "real%d" % i, app_dir, user_like_env(), real_text, False, a.setup_timeout)
+            print("RUN %d real-shape: %s" % (i, "PASS" if not real_fail else "FAIL " + "; ".join(real_fail)))
+            ok = ok and not real_fail
         verdicts.append(ok)
         print("RUN %d: %s  (setup %.2fs, nodes=%s, error=%s)" % (
             i, "PASS" if ok else "FAIL", v.get("secs", -1), v.get("nodes"),

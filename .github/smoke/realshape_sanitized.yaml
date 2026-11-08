@@ -1,0 +1,1101 @@
+mixed-port: 7890
+allow-lan: true
+bind-address: '*'
+mode: rule
+log-level: info
+external-controller: 127.0.0.1:9090
+dns:
+  enable: true
+  ipv6: false
+  default-nameserver:
+  - 223.5.5.5
+  - 119.29.29.29
+  - 114.114.114.114
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  use-hosts: true
+  respect-rules: true
+  proxy-server-nameserver:
+  - 223.5.5.5
+  - 119.29.29.29
+  - 114.114.114.114
+  nameserver:
+  - https://1.1.1.1/dns-query
+  - https://dns.google/dns-query
+  fallback:
+  - https://1.1.1.1/dns-query
+  - https://dns.google/dns-query
+  fallback-filter:
+    geoip: true
+    geoip-code: CN
+    geosite:
+    - gfw
+    ipcidr:
+    - 240.0.0.0/4
+    domain:
+    - +.google.com
+    - +.facebook.com
+    - +.youtube.com
+proxies:
+- name: 🇺🇸 美国-01 TROJAN
+  type: trojan
+  server: n01.wx-smoke.example.com
+  port: 40000
+  password: dummy-password-01
+  udp: true
+  sni: sni01.wx-smoke.example.com
+  skip-cert-verify: false
+- name: 🇭🇰 香港-02 TROJAN
+  type: trojan
+  server: n02.wx-smoke.example.com
+  port: 40100
+  password: dummy-password-02
+  udp: true
+  sni: sni02.wx-smoke.example.com
+  skip-cert-verify: false
+- name: 🇯🇵 日本-03 TROJAN
+  type: trojan
+  server: n03.wx-smoke.example.com
+  port: 40200
+  password: dummy-password-03
+  udp: true
+  sni: sni03.wx-smoke.example.com
+  skip-cert-verify: false
+- name: 🇸🇬 新加坡-04 VLESS
+  type: vless
+  server: 192.0.2.13
+  port: 40300
+  uuid: 11111111-2222-3333-4444-555555555555
+  udp: true
+  tls: true
+  skip-cert-verify: false
+  client-fingerprint: chrome
+  servername: sni04.wx-smoke.example.com
+  network: ws
+  ws-opts:
+    path: /ws04
+    headers:
+      Host: ws04.wx-smoke.example.com
+- name: 🇹🇼 台湾-05 MIERU
+  type: mieru
+  server: n05.wx-smoke.example.com
+  transport: TCP
+  udp: true
+  username: dummy-user
+  password: dummy-password-05
+  multiplexing: MULTIPLEXING_LOW
+  port: 40400
+  mtu: 1400
+- name: 🇰🇷 韩国-06 VLESS
+  type: vless
+  server: 192.0.2.15
+  port: 40500
+  uuid: 11111111-2222-3333-4444-555555555555
+  udp: true
+  tfo: true
+  tls: true
+  skip-cert-verify: false
+  client-fingerprint: chrome
+  servername: sni06.wx-smoke.example.com
+  network: xhttp
+  xhttp-opts:
+    path: /xh06
+    mode: auto
+    x-padding-bytes: 100-1000
+    uplink-chunk-size: '2097152'
+    sc-max-each-post-bytes: '2097152'
+    sc-min-posts-interval-ms: '10'
+    sc-stream-up-server-secs: 20-80
+    x-padding-key: x_padding
+    x-padding-header: Referer
+    x-padding-obfs-mode: true
+    x-padding-placement: queryInHeader
+    x-padding-method: repeat-x
+    no-grpc-header: true
+    no-sse-header: true
+    sc-max-buffered-posts: 50
+    xmux:
+      max-concurrency: 8-16
+      c-max-reuse-times: '0'
+      h-max-request-times: 600-900
+      h-max-reusable-secs: 1800-3000
+      h-keep-alive-period: 30
+    download-settings:
+      path: /dl06
+      host: dl06.wx-smoke.example.com
+      server: 192.0.2.105
+      port: 443
+      tls: true
+      servername: dl06.wx-smoke.example.com
+      skip-cert-verify: false
+      client-fingerprint: chrome
+      alpn:
+      - h2
+- name: 🇺🇸 美国-07 MIERU
+  type: mieru
+  server: n07.wx-smoke.example.com
+  transport: TCP
+  udp: true
+  username: dummy-user
+  password: dummy-password-07
+  multiplexing: MULTIPLEXING_LOW
+  port: 40600
+  mtu: 1400
+- name: 🇭🇰 香港-08 VLESS
+  type: vless
+  server: 192.0.2.17
+  port: 40700
+  uuid: 11111111-2222-3333-4444-555555555555
+  udp: true
+  tls: true
+  skip-cert-verify: false
+  client-fingerprint: chrome
+  servername: sni08.wx-smoke.example.com
+  network: ws
+  ws-opts:
+    path: /ws08
+    headers:
+      Host: ws08.wx-smoke.example.com
+- name: 🇯🇵 日本-09 VLESS
+  type: vless
+  server: 192.0.2.18
+  port: 40800
+  uuid: 11111111-2222-3333-4444-555555555555
+  udp: true
+  tls: true
+  skip-cert-verify: false
+  client-fingerprint: chrome
+  servername: sni09.wx-smoke.example.com
+  network: ws
+  ws-opts:
+    path: /ws09
+    headers:
+      Host: ws09.wx-smoke.example.com
+- name: 🇸🇬 新加坡-10 VLESS
+  type: vless
+  server: 192.0.2.19
+  port: 40900
+  uuid: 11111111-2222-3333-4444-555555555555
+  udp: true
+  tls: true
+  skip-cert-verify: false
+  client-fingerprint: chrome
+  servername: sni10.wx-smoke.example.com
+  network: ws
+  ws-opts:
+    path: /ws10
+    headers:
+      Host: ws10.wx-smoke.example.com
+- name: 🇹🇼 台湾-11 VLESS
+  type: vless
+  server: 192.0.2.20
+  port: 41000
+  uuid: 11111111-2222-3333-4444-555555555555
+  udp: true
+  tls: true
+  skip-cert-verify: false
+  client-fingerprint: chrome
+  servername: sni11.wx-smoke.example.com
+  network: ws
+  ws-opts:
+    path: /ws11
+    headers:
+      Host: ws11.wx-smoke.example.com
+- name: 🇰🇷 韩国-12 VLESS
+  type: vless
+  server: 192.0.2.21
+  port: 41100
+  uuid: 11111111-2222-3333-4444-555555555555
+  udp: true
+  tls: true
+  skip-cert-verify: false
+  client-fingerprint: chrome
+  servername: sni12.wx-smoke.example.com
+  network: ws
+  ws-opts:
+    path: /ws12
+    headers:
+      Host: ws12.wx-smoke.example.com
+- name: 🇺🇸 美国-13 VLESS
+  type: vless
+  server: n13.wx-smoke.example.com
+  port: 41200
+  uuid: 11111111-2222-3333-4444-555555555555
+  udp: true
+  tfo: true
+  flow: xtls-rprx-vision
+  tls: true
+  skip-cert-verify: false
+  client-fingerprint: chrome
+  servername: sni13.wx-smoke.example.com
+  reality-opts:
+    public-key: Z84J2IelR9ch3k8VtlVhhs5ycBUlXA7wHBWcBrjqnAw
+    short-id: 0123abcd
+- name: 🇭🇰 香港-14 VLESS
+  type: vless
+  server: 192.0.2.23
+  port: 41300
+  uuid: 11111111-2222-3333-4444-555555555555
+  udp: true
+  tls: true
+  skip-cert-verify: false
+  client-fingerprint: chrome
+  servername: sni14.wx-smoke.example.com
+  network: ws
+  ws-opts:
+    path: /ws14
+    headers:
+      Host: ws14.wx-smoke.example.com
+- name: 🇯🇵 日本-15 VLESS
+  type: vless
+  server: 192.0.2.24
+  port: 41400
+  uuid: 11111111-2222-3333-4444-555555555555
+  udp: true
+  tls: true
+  skip-cert-verify: false
+  client-fingerprint: chrome
+  servername: sni15.wx-smoke.example.com
+  network: ws
+  ws-opts:
+    path: /ws15
+    headers:
+      Host: ws15.wx-smoke.example.com
+- name: 🇸🇬 新加坡-16 VLESS
+  type: vless
+  server: 192.0.2.25
+  port: 41500
+  uuid: 11111111-2222-3333-4444-555555555555
+  udp: true
+  tls: true
+  skip-cert-verify: false
+  client-fingerprint: chrome
+  servername: sni16.wx-smoke.example.com
+  network: ws
+  ws-opts:
+    path: /ws16
+    headers:
+      Host: ws16.wx-smoke.example.com
+- name: 🇹🇼 台湾-17 VLESS
+  type: vless
+  server: 192.0.2.26
+  port: 41600
+  uuid: 11111111-2222-3333-4444-555555555555
+  udp: true
+  tls: true
+  skip-cert-verify: false
+  client-fingerprint: chrome
+  servername: sni17.wx-smoke.example.com
+  network: ws
+  ws-opts:
+    path: /ws17
+    headers:
+      Host: ws17.wx-smoke.example.com
+- name: 🇰🇷 韩国-18 HYSTERIA2
+  type: hysteria2
+  server: n18.wx-smoke.example.com
+  password: dummy-password-18
+  skip-cert-verify: false
+  sni: sni18.wx-smoke.example.com
+  udp: true
+  port: 41700
+  ports: 61400-61900
+  mport: 61400-61900
+- name: 🇺🇸 美国-19 VLESS
+  type: vless
+  server: 192.0.2.28
+  port: 41800
+  uuid: 11111111-2222-3333-4444-555555555555
+  udp: true
+  tls: true
+  skip-cert-verify: false
+  client-fingerprint: chrome
+  servername: sni19.wx-smoke.example.com
+  network: ws
+  ws-opts:
+    path: /ws19
+    headers:
+      Host: ws19.wx-smoke.example.com
+- name: 🇭🇰 香港-20 JUICITY
+  type: juicity
+  server: n20.wx-smoke.example.com
+  port: 41900
+  uuid: 11111111-2222-3333-4444-555555555555
+  password: dummy-password-20
+  sni: sni20.wx-smoke.example.com
+  skip-cert-verify: false
+  alpn:
+  - h3
+  congestion-controller: bbr
+  udp: true
+  hop: true
+  hop-ports: 39999-49999
+  hop-interval: 30
+- name: 🇯🇵 日本-21 TROJAN
+  type: trojan
+  server: n21.wx-smoke.example.com
+  port: 42000
+  password: dummy-password-21
+  udp: true
+  sni: sni21.wx-smoke.example.com
+  skip-cert-verify: false
+- name: 🇸🇬 新加坡-22 VLESS
+  type: vless
+  server: 192.0.2.31
+  port: 42100
+  uuid: 11111111-2222-3333-4444-555555555555
+  udp: true
+  tls: true
+  skip-cert-verify: false
+  client-fingerprint: chrome
+  servername: sni22.wx-smoke.example.com
+  network: ws
+  ws-opts:
+    path: /ws22
+    headers:
+      Host: ws22.wx-smoke.example.com
+- name: 🇹🇼 台湾-23 JUICITY
+  type: juicity
+  server: n23.wx-smoke.example.com
+  port: 42200
+  uuid: 11111111-2222-3333-4444-555555555555
+  password: dummy-password-23
+  sni: sni23.wx-smoke.example.com
+  skip-cert-verify: false
+  alpn:
+  - h3
+  congestion-controller: bbr
+  udp: true
+  hop: true
+  hop-ports: 49000-49999
+  hop-interval: 30
+- name: 🇰🇷 韩国-24 SS
+  type: ss
+  server: n24.wx-smoke.example.com
+  port: 42300
+  cipher: 2022-blake3-aes-256-gcm
+  password: AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=
+  udp: true
+- name: 🇺🇸 美国-25 VLESS
+  type: vless
+  server: 192.0.2.34
+  port: 42400
+  uuid: 11111111-2222-3333-4444-555555555555
+  udp: true
+  tls: true
+  skip-cert-verify: false
+  client-fingerprint: chrome
+  servername: sni25.wx-smoke.example.com
+  network: ws
+  ws-opts:
+    path: /ws25
+    headers:
+      Host: ws25.wx-smoke.example.com
+- name: 🇭🇰 香港-26 ANYTLS
+  type: anytls
+  server: n26.wx-smoke.example.com
+  port: 42500
+  password: dummy-password-26
+  skip-cert-verify: false
+  udp: true
+  sni: sni26.wx-smoke.example.com
+- name: 🇯🇵 日本-27 VLESS
+  type: vless
+  server: n27.wx-smoke.example.com
+  port: 42600
+  uuid: 11111111-2222-3333-4444-555555555555
+  udp: true
+  tfo: true
+  flow: xtls-rprx-vision
+  tls: true
+  skip-cert-verify: false
+  client-fingerprint: chrome
+  servername: sni27.wx-smoke.example.com
+  reality-opts:
+    public-key: Z84J2IelR9ch3k8VtlVhhs5ycBUlXA7wHBWcBrjqnAw
+    short-id: 0123abcd
+- name: 🇸🇬 新加坡-28 VLESS
+  type: vless
+  server: 192.0.2.37
+  port: 42700
+  uuid: 11111111-2222-3333-4444-555555555555
+  udp: true
+  tls: true
+  skip-cert-verify: false
+  client-fingerprint: chrome
+  servername: sni28.wx-smoke.example.com
+  network: ws
+  ws-opts:
+    path: /ws28
+    headers:
+      Host: ws28.wx-smoke.example.com
+- name: 🇹🇼 台湾-29 JUICITY
+  type: juicity
+  server: n29.wx-smoke.example.com
+  port: 42800
+  uuid: 11111111-2222-3333-4444-555555555555
+  password: dummy-password-29
+  sni: sni29.wx-smoke.example.com
+  skip-cert-verify: false
+  alpn:
+  - h3
+  congestion-controller: bbr
+  udp: true
+  hop: true
+  hop-ports: 49000-49999
+  hop-interval: 30
+- name: 🇰🇷 韩国-30 VLESS
+  type: vless
+  server: 192.0.2.39
+  port: 42900
+  uuid: 11111111-2222-3333-4444-555555555555
+  udp: true
+  tls: true
+  skip-cert-verify: false
+  client-fingerprint: chrome
+  servername: sni30.wx-smoke.example.com
+  network: ws
+  ws-opts:
+    path: /ws30
+    headers:
+      Host: ws30.wx-smoke.example.com
+proxy-groups:
+- name: 𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+  type: select
+  proxies:
+  - 自动选择
+  - 故障转移
+  - 🇺🇸 美国-01 TROJAN
+  - 🇭🇰 香港-02 TROJAN
+  - 🇯🇵 日本-03 TROJAN
+  - 🇸🇬 新加坡-04 VLESS
+  - 🇹🇼 台湾-05 MIERU
+  - 🇰🇷 韩国-06 VLESS
+  - 🇺🇸 美国-07 MIERU
+  - 🇭🇰 香港-08 VLESS
+  - 🇯🇵 日本-09 VLESS
+  - 🇸🇬 新加坡-10 VLESS
+  - 🇹🇼 台湾-11 VLESS
+  - 🇰🇷 韩国-12 VLESS
+  - 🇺🇸 美国-13 VLESS
+  - 🇭🇰 香港-14 VLESS
+  - 🇯🇵 日本-15 VLESS
+  - 🇸🇬 新加坡-16 VLESS
+  - 🇹🇼 台湾-17 VLESS
+  - 🇰🇷 韩国-18 HYSTERIA2
+  - 🇺🇸 美国-19 VLESS
+  - 🇭🇰 香港-20 JUICITY
+  - 🇯🇵 日本-21 TROJAN
+  - 🇸🇬 新加坡-22 VLESS
+  - 🇹🇼 台湾-23 JUICITY
+  - 🇰🇷 韩国-24 SS
+  - 🇺🇸 美国-25 VLESS
+  - 🇭🇰 香港-26 ANYTLS
+  - 🇯🇵 日本-27 VLESS
+  - 🇸🇬 新加坡-28 VLESS
+  - 🇹🇼 台湾-29 JUICITY
+  - 🇰🇷 韩国-30 VLESS
+- name: 自动选择
+  type: url-test
+  proxies:
+  - 🇺🇸 美国-01 TROJAN
+  - 🇭🇰 香港-02 TROJAN
+  - 🇯🇵 日本-03 TROJAN
+  - 🇸🇬 新加坡-04 VLESS
+  - 🇹🇼 台湾-05 MIERU
+  - 🇰🇷 韩国-06 VLESS
+  - 🇺🇸 美国-07 MIERU
+  - 🇭🇰 香港-08 VLESS
+  - 🇯🇵 日本-09 VLESS
+  - 🇸🇬 新加坡-10 VLESS
+  - 🇹🇼 台湾-11 VLESS
+  - 🇰🇷 韩国-12 VLESS
+  - 🇺🇸 美国-13 VLESS
+  - 🇭🇰 香港-14 VLESS
+  - 🇯🇵 日本-15 VLESS
+  - 🇸🇬 新加坡-16 VLESS
+  - 🇹🇼 台湾-17 VLESS
+  - 🇰🇷 韩国-18 HYSTERIA2
+  - 🇺🇸 美国-19 VLESS
+  - 🇭🇰 香港-20 JUICITY
+  - 🇯🇵 日本-21 TROJAN
+  - 🇸🇬 新加坡-22 VLESS
+  - 🇹🇼 台湾-23 JUICITY
+  - 🇰🇷 韩国-24 SS
+  - 🇺🇸 美国-25 VLESS
+  - 🇭🇰 香港-26 ANYTLS
+  - 🇯🇵 日本-27 VLESS
+  - 🇸🇬 新加坡-28 VLESS
+  - 🇹🇼 台湾-29 JUICITY
+  - 🇰🇷 韩国-30 VLESS
+  url: http://www.gstatic.com/generate_204
+  interval: 300
+  tolerance: 50
+  lazy: false
+- name: 故障转移
+  type: fallback
+  proxies:
+  - 🇺🇸 美国-01 TROJAN
+  - 🇭🇰 香港-02 TROJAN
+  - 🇯🇵 日本-03 TROJAN
+  - 🇸🇬 新加坡-04 VLESS
+  - 🇹🇼 台湾-05 MIERU
+  - 🇰🇷 韩国-06 VLESS
+  - 🇺🇸 美国-07 MIERU
+  - 🇭🇰 香港-08 VLESS
+  - 🇯🇵 日本-09 VLESS
+  - 🇸🇬 新加坡-10 VLESS
+  - 🇹🇼 台湾-11 VLESS
+  - 🇰🇷 韩国-12 VLESS
+  - 🇺🇸 美国-13 VLESS
+  - 🇭🇰 香港-14 VLESS
+  - 🇯🇵 日本-15 VLESS
+  - 🇸🇬 新加坡-16 VLESS
+  - 🇹🇼 台湾-17 VLESS
+  - 🇰🇷 韩国-18 HYSTERIA2
+  - 🇺🇸 美国-19 VLESS
+  - 🇭🇰 香港-20 JUICITY
+  - 🇯🇵 日本-21 TROJAN
+  - 🇸🇬 新加坡-22 VLESS
+  - 🇹🇼 台湾-23 JUICITY
+  - 🇰🇷 韩国-24 SS
+  - 🇺🇸 美国-25 VLESS
+  - 🇭🇰 香港-26 ANYTLS
+  - 🇯🇵 日本-27 VLESS
+  - 🇸🇬 新加坡-28 VLESS
+  - 🇹🇼 台湾-29 JUICITY
+  - 🇰🇷 韩国-30 VLESS
+  url: http://www.gstatic.com/generate_204
+  interval: 300
+  lazy: false
+rules:
+- IP-CIDR,203.0.1.0/24,𝙒𝙊𝙉𝘿𝙀𝙍𝙓,no-resolve
+- IP-CIDR,203.0.2.0/24,𝙒𝙊𝙉𝘿𝙀𝙍𝙓,no-resolve
+- DOMAIN-SUFFIX,s001.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s002.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN,d001.wx-smoke-rule.example,DIRECT
+- DOMAIN,d002.wx-smoke-rule.example,DIRECT
+- DOMAIN,d003.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s003.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN,d004.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN,d005.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN,d006.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN,d007.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN,d008.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s004.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN,d009.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN,d010.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN,d011.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s005.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s006.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN,d012.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s007.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s008.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s009.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s010.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s011.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s012.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s013.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s014.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s015.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s016.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s017.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s018.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s019.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s020.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s021.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s022.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s023.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s024.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s025.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s026.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s027.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s028.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s029.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s030.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s031.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s032.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s033.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s034.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s035.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s036.wx-smoke-rule.example,DIRECT
+- DOMAIN,d013.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s037.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s038.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s039.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s040.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s041.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s042.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s043.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s044.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s045.wx-smoke-rule.example,DIRECT
+- DOMAIN-KEYWORD,wxkw001,DIRECT
+- DOMAIN-KEYWORD,wxkw002,DIRECT
+- DOMAIN-KEYWORD,wxkw003,DIRECT
+- DOMAIN-SUFFIX,s046.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s047.wx-smoke-rule.example,DIRECT
+- DOMAIN-KEYWORD,wxkw004,DIRECT
+- DOMAIN-SUFFIX,s048.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s049.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s050.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s051.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s052.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s053.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s054.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s055.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s056.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s057.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s058.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s059.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s060.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s061.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s062.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s063.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s064.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s065.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s066.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s067.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s068.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s069.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s070.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s071.wx-smoke-rule.example,DIRECT
+- DOMAIN,d014.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s072.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s073.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s074.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s075.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s076.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s077.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s078.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s079.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s080.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s081.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s082.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s083.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s084.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s085.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s086.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s087.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s088.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s089.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s090.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s091.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s092.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s093.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s094.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s095.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s096.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s097.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s098.wx-smoke-rule.example,DIRECT
+- DOMAIN-KEYWORD,wxkw005,DIRECT
+- DOMAIN-SUFFIX,s099.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s100.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s101.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s102.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s103.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s104.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s105.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s106.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s107.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s108.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s109.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s110.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s111.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s112.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s113.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s114.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s115.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s116.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s117.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s118.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s119.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s120.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s121.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s122.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s123.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s124.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s125.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s126.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s127.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s128.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s129.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s130.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s131.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s132.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s133.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s134.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s135.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s136.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s137.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s138.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s139.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s140.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s141.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s142.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s143.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s144.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s145.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s146.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s147.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s148.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s149.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s150.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s151.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s152.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s153.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s154.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s155.wx-smoke-rule.example,DIRECT
+- DOMAIN-KEYWORD,wxkw006,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-KEYWORD,wxkw007,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-KEYWORD,wxkw008,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-KEYWORD,wxkw009,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-KEYWORD,wxkw010,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s156.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s157.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-KEYWORD,wxkw011,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-KEYWORD,wxkw012,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-KEYWORD,wxkw013,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s158.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-KEYWORD,wxkw014,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s159.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-KEYWORD,wxkw015,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-KEYWORD,wxkw016,REJECT
+- DOMAIN-KEYWORD,wxkw017,REJECT
+- DOMAIN-KEYWORD,wxkw018,REJECT
+- DOMAIN-KEYWORD,wxkw019,REJECT
+- DOMAIN-KEYWORD,wxkw020,REJECT
+- DOMAIN-KEYWORD,wxkw021,REJECT
+- DOMAIN-KEYWORD,wxkw022,REJECT
+- DOMAIN-SUFFIX,s160.wx-smoke-rule.example,REJECT
+- DOMAIN-KEYWORD,wxkw023,REJECT
+- DOMAIN-SUFFIX,s161.wx-smoke-rule.example,REJECT
+- DOMAIN-KEYWORD,wxkw024,REJECT
+- DOMAIN-KEYWORD,wxkw025,REJECT
+- DOMAIN-KEYWORD,wxkw026,REJECT
+- DOMAIN-KEYWORD,wxkw027,REJECT
+- DOMAIN-SUFFIX,s162.wx-smoke-rule.example,REJECT
+- DOMAIN-KEYWORD,wxkw028,REJECT
+- DOMAIN-KEYWORD,wxkw029,REJECT
+- DOMAIN-KEYWORD,wxkw030,REJECT
+- DOMAIN-KEYWORD,wxkw031,REJECT
+- DOMAIN-KEYWORD,wxkw032,REJECT
+- DOMAIN-KEYWORD,wxkw033,REJECT
+- DOMAIN-KEYWORD,wxkw034,REJECT
+- DOMAIN-KEYWORD,wxkw035,REJECT
+- DOMAIN-KEYWORD,wxkw036,REJECT
+- DOMAIN-SUFFIX,s163.wx-smoke-rule.example,REJECT
+- DOMAIN-KEYWORD,wxkw037,REJECT
+- DOMAIN-KEYWORD,wxkw038,REJECT
+- DOMAIN-SUFFIX,s164.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s165.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s166.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s167.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s168.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s169.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s170.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s171.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s172.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s173.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s174.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s175.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s176.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s177.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s178.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s179.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s180.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s181.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s182.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s183.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s184.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s185.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s186.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s187.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s188.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s189.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s190.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s191.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s192.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s193.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s194.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s195.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s196.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s197.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s198.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s199.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s200.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s201.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s202.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s203.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s204.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s205.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s206.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s207.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s208.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s209.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s210.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s211.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s212.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s213.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s214.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s215.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s216.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s217.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s218.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s219.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s220.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s221.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s222.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s223.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s224.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s225.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s226.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s227.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s228.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s229.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s230.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s231.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s232.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s233.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s234.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s235.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s236.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s237.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s238.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s239.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s240.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s241.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s242.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s243.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s244.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s245.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s246.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s247.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s248.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s249.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s250.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s251.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s252.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s253.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s254.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s255.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-KEYWORD,wxkw039,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s256.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s257.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s258.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s259.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s260.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s261.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s262.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s263.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s264.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s265.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s266.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s267.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s268.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s269.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s270.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s271.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s272.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s273.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s274.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s275.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s276.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s277.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s278.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s279.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s280.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s281.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s282.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s283.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s284.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s285.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s286.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s287.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s288.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s289.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s290.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s291.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s292.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s293.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s294.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s295.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s296.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s297.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s298.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s299.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s300.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s301.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s302.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s303.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s304.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s305.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s306.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s307.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s308.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s309.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s310.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s311.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s312.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s313.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s314.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s315.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s316.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s317.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s318.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s319.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s320.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s321.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s322.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s323.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s324.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s325.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s326.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s327.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s328.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s329.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s330.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s331.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s332.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s333.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s334.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s335.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s336.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s337.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s338.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s339.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s340.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s341.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s342.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s343.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s344.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s345.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s346.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s347.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s348.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s349.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s350.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s351.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s352.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s353.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s354.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s355.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s356.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s357.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s358.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s359.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s360.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s361.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s362.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s363.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s364.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s365.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s366.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s367.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s368.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s369.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s370.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s371.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s372.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s373.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s374.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s375.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s376.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s377.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s378.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s379.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s380.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s381.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s382.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s383.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s384.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s385.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s386.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s387.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s388.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s389.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s390.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s391.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s392.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s393.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s394.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s395.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s396.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s397.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s398.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s399.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s400.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s401.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s402.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s403.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s404.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s405.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s406.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s407.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s408.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s409.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s410.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s411.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s412.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s413.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s414.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s415.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s416.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s417.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s418.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s419.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s420.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s421.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s422.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s423.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s424.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s425.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s426.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s427.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s428.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s429.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s430.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s431.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s432.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s433.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- DOMAIN-SUFFIX,s434.wx-smoke-rule.example,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
+- IP-CIDR,203.0.3.0/24,𝙒𝙊𝙉𝘿𝙀𝙍𝙓,no-resolve
+- IP-CIDR,203.0.4.0/24,𝙒𝙊𝙉𝘿𝙀𝙍𝙓,no-resolve
+- IP-CIDR,203.0.5.0/24,𝙒𝙊𝙉𝘿𝙀𝙍𝙓,no-resolve
+- IP-CIDR,203.0.6.0/24,𝙒𝙊𝙉𝘿𝙀𝙍𝙓,no-resolve
+- IP-CIDR,203.0.7.0/24,𝙒𝙊𝙉𝘿𝙀𝙍𝙓,no-resolve
+- IP-CIDR6,2001:db8:1::/48,𝙒𝙊𝙉𝘿𝙀𝙍𝙓,no-resolve
+- IP-CIDR6,2001:db8:2::/48,𝙒𝙊𝙉𝘿𝙀𝙍𝙓,no-resolve
+- IP-CIDR6,2001:db8:3::/48,𝙒𝙊𝙉𝘿𝙀𝙍𝙓,no-resolve
+- IP-CIDR,203.0.8.0/24,𝙒𝙊𝙉𝘿𝙀𝙍𝙓,no-resolve
+- IP-CIDR,203.0.9.0/24,𝙒𝙊𝙉𝘿𝙀𝙍𝙓,no-resolve
+- IP-CIDR,203.0.10.0/24,𝙒𝙊𝙉𝘿𝙀𝙍𝙓,no-resolve
+- IP-CIDR,203.0.11.0/24,𝙒𝙊𝙉𝘿𝙀𝙍𝙓,no-resolve
+- IP-CIDR,203.0.12.0/24,𝙒𝙊𝙉𝘿𝙀𝙍𝙓,no-resolve
+- IP-CIDR,203.0.13.0/24,𝙒𝙊𝙉𝘿𝙀𝙍𝙓,no-resolve
+- IP-CIDR,203.0.14.0/24,𝙒𝙊𝙉𝘿𝙀𝙍𝙓,no-resolve
+- IP-CIDR,203.0.15.0/24,𝙒𝙊𝙉𝘿𝙀𝙍𝙓,no-resolve
+- IP-CIDR,203.0.16.0/24,𝙒𝙊𝙉𝘿𝙀𝙍𝙓,no-resolve
+- IP-CIDR,203.0.17.0/24,𝙒𝙊𝙉𝘿𝙀𝙍𝙓,no-resolve
+- IP-CIDR,203.0.18.0/24,𝙒𝙊𝙉𝘿𝙀𝙍𝙓,no-resolve
+- IP-CIDR,203.0.19.0/24,𝙒𝙊𝙉𝘿𝙀𝙍𝙓,no-resolve
+- IP-CIDR,203.0.20.0/24,𝙒𝙊𝙉𝘿𝙀𝙍𝙓,no-resolve
+- IP-CIDR,203.0.21.0/24,𝙒𝙊𝙉𝘿𝙀𝙍𝙓,no-resolve
+- IP-CIDR,203.0.22.0/24,𝙒𝙊𝙉𝘿𝙀𝙍𝙓,no-resolve
+- IP-CIDR,203.0.23.0/24,𝙒𝙊𝙉𝘿𝙀𝙍𝙓,no-resolve
+- IP-CIDR,203.0.24.0/24,𝙒𝙊𝙉𝘿𝙀𝙍𝙓,no-resolve
+- IP-CIDR,203.0.25.0/24,𝙒𝙊𝙉𝘿𝙀𝙍𝙓,no-resolve
+- DOMAIN,d015.wx-smoke-rule.example,DIRECT
+- DOMAIN,d016.wx-smoke-rule.example,DIRECT
+- DOMAIN-SUFFIX,s435.wx-smoke-rule.example,DIRECT
+- IP-CIDR,203.0.26.0/24,DIRECT
+- IP-CIDR,203.0.27.0/24,DIRECT
+- IP-CIDR,203.0.28.0/24,DIRECT
+- IP-CIDR,203.0.29.0/24,DIRECT
+- IP-CIDR,203.0.30.0/24,DIRECT
+- IP-CIDR,203.0.31.0/24,DIRECT
+- IP-CIDR,203.0.32.0/24,DIRECT
+- IP-CIDR6,2001:db8:4::/48,DIRECT
+- DOMAIN-SUFFIX,s436.wx-smoke-rule.example,DIRECT
+- DOMAIN-KEYWORD,wxkw040,DIRECT
+- GEOIP,CN,DIRECT
+- MATCH,𝙒𝙊𝙉𝘿𝙀𝙍𝙓
