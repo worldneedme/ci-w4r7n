@@ -219,6 +219,8 @@ def recursive_compare(path: str, go_val: Any, rust_val: Any, diff: DiffResult):
             # Special whitelist cases
             if path.startswith("proxy.list.proxies.") and k in ("extra", "tfo", "mptcp"):
                 diff.add_whitelist(f"{path}.{k}: optional proxy field missing in Rust")
+            elif path.startswith("profile.base.config.") or path == "profile.base.config":
+                diff.add_whitelist(f"{path}.{k}: mihomo default struct field omitted in raw profile")
             else:
                 diff.add_fail(f"{path}: key {k!r} present in Go but missing in Rust")
 
@@ -236,7 +238,9 @@ def recursive_compare(path: str, go_val: Any, rust_val: Any, diff: DiffResult):
                     diff.add_fail(f"{sub_path}: Rust value must be positive integer, got {rust_val[k]!r}")
             elif sub_path in ("traffic.current.up", "traffic.current.down", "traffic.total.up", "traffic.total.down"):
                 diff.add_whitelist(f"{sub_path}: traffic counters vary ({go_val[k]} vs {rust_val[k]})")
-            elif sub_path in ("proxy.testDelay.delay",):
+            elif sub_path in ("connection.list.downloadTotal", "connection.list.uploadTotal", "connection.list.memory"):
+                diff.add_whitelist(f"{sub_path}: connection stats vary ({go_val[k]} vs {rust_val[k]})")
+            elif sub_path in ("proxy.testDelay.delay", "proxy.testDelay.value"):
                 diff.add_whitelist(f"{sub_path}: delay measurement varies ({go_val[k]} vs {rust_val[k]})")
             elif sub_path in ("route.watch.core-epoch", "route.watch.route-version", "route.check.core-epoch", "route.check.route-version"):
                 diff.add_whitelist(f"{sub_path}: epoch/version numeric variance ({go_val[k]} vs {rust_val[k]})")
