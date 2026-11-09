@@ -405,13 +405,16 @@ jobs:
           echo "Found APK: $apk_file"
 
           APKSIGNER=$(find ${ANDROID_HOME:-$ANDROID_SDK_ROOT} -name apksigner 2>/dev/null | sort -V | tail -1)
-          if [ -n "$APKSIGNER" ] && [ -x "$APKSIGNER" ]; then
-            "$APKSIGNER" verify --print-certs "$apk_file" | tee cert_info.txt
-            sha256=$(grep -i "SHA-256 digest:" cert_info.txt | head -1 | awk '{print $NF}')
-          else
-            keytool -printcert -jarfile "$apk_file" | tee cert_info.txt
-            sha256=$(grep -i "SHA256:" cert_info.txt | head -1 | awk '{print $2}')
+          if [ -z "$APKSIGNER" ] || [ ! -x "$APKSIGNER" ]; then
+            APKSIGNER=$(command -v apksigner || true)
           fi
+          if [ -z "$APKSIGNER" ] || [ ! -x "$APKSIGNER" ]; then
+            echo "::error::apksigner not found in SDK or PATH! keytool cannot verify v2/v3 APK signatures."
+            exit 1
+          fi
+          echo "Using apksigner: $APKSIGNER"
+          "$APKSIGNER" verify --print-certs "$apk_file" | tee cert_info.txt
+          sha256=$(grep -i "SHA-256 digest:" cert_info.txt | head -1 | awk '{print $NF}')
 
           echo "Extracted SHA256: $sha256"
           EXPECTED="440f4372f8cc4b7a5d2e3bda4b2598e9635b99bef61fa85bea14122bcdd4fe94"
@@ -748,25 +751,117 @@ jobs:
             if (-not $goSetup) { throw 'Go official signed setup could not be downloaded.' }
           }
 
+          # Helper functions to locate installed application and shortcuts dynamically
+          function Get-AppInstallation {
+            param([string]$namePattern, [string]$excludePattern = "")
+            Write-Host "Locating application for pattern '$namePattern' (exclude: '$excludePattern')..."
+            $regRoots = @(
+              "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*",
+              "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*",
+              "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*"
+            )
+            foreach ($root in $regRoots) {
+              $keys = Get-ItemProperty $root -ErrorAction SilentlyContinue | Where-Object {
+                $dn = $_.DisplayName
+                if (-not $dn) { $dn = "" }
+                $dn -like "*$namePattern*" -and (-not $excludePattern -or ($dn -notlike "*$excludePattern*"))
+              }
+              foreach ($k in $keys) {
+                Write-Host "Found registry entry: DisplayName='$($k.DisplayName)', InstallLocation='$($k.InstallLocation)', UninstallString='$($k.UninstallString)'"
+                if ($k.InstallLocation -and (Test-Path $k.InstallLocation)) {
+                  $candidate = Join-Path $k.InstallLocation "FlClash.exe"
+                  if (Test-Path $candidate) {
+                    $uninst = if ($k.UninstallString) { ($k.UninstallString -replace '"', '').Trim() } else { Join-Path $k.InstallLocation "unins000.exe" }
+                    return @{ Exe = $candidate; Dir = $k.InstallLocation; Uninst = $uninst; DisplayName = $k.DisplayName }
+                  }
+                }
+                if ($k.UninstallString) {
+                  $clean = ($k.UninstallString -replace '"', '').Trim()
+                  $dir = Split-Path $clean
+                  $candidate = Join-Path $dir "FlClash.exe"
+                  if (Test-Path $candidate) {
+                    return @{ Exe = $candidate; Dir = $dir; Uninst = $clean; DisplayName = $k.DisplayName }
+                  }
+                }
+              }
+            }
+
+            # Fallback: filesystem directory search
+            Write-Host "Registry entry did not yield FlClash.exe, searching filesystem directories..."
+            $searchRoots = @(
+              $env:ProgramFiles,
+              ${env:ProgramFiles(x86)},
+              (Join-Path $env:LOCALAPPDATA "Programs")
+            ) | Where-Object { $_ -and (Test-Path $_) }
+
+            foreach ($sr in $searchRoots) {
+              $matches = Get-ChildItem -Path $sr -Filter "FlClash.exe" -Recurse -Depth 3 -ErrorAction SilentlyContinue |
+                Where-Object {
+                  $d = $_.DirectoryName
+                  $d -like "*$namePattern*" -and (-not $excludePattern -or ($d -notlike "*$excludePattern*"))
+                }
+              if ($matches) {
+                $m = $matches | Select-Object -First 1
+                $uninst = Join-Path $m.DirectoryName "unins000.exe"
+                return @{ Exe = $m.FullName; Dir = $m.DirectoryName; Uninst = $uninst; DisplayName = $namePattern }
+              }
+            }
+            return $null
+          }
+
+          function Find-DesktopShortcut {
+            param([string]$namePattern, [string]$excludePattern = "")
+            $desktops = @(
+              [Environment]::GetFolderPath("Desktop"),
+              [Environment]::GetFolderPath("CommonDesktopDirectory")
+            ) | Where-Object { $_ -and (Test-Path $_) }
+
+            foreach ($desk in $desktops) {
+              $lnks = Get-ChildItem -Path $desk -Filter "*.lnk" -ErrorAction SilentlyContinue |
+                Where-Object {
+                  $b = $_.BaseName
+                  $b -like "*$namePattern*" -and (-not $excludePattern -or ($b -notlike "*$excludePattern*"))
+                }
+              if ($lnks) {
+                return ($lnks | Select-Object -First 1).FullName
+              }
+            }
+            return $null
+          }
+
           # 2. Install Go version
           Write-Host "Installing Go version silently..."
           Start-Process -FilePath $goSetup.FullName -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -Wait
-          $goExe = "C:\Program Files\WONDERX V1\FlClash.exe"
-          if (-not (Test-Path $goExe)) { throw "Go version was not installed at $goExe" }
-          $desktop = [Environment]::GetFolderPath("Desktop")
-          $goDesktopLnk = Join-Path $desktop "WONDERX V1.lnk"
-          if (-not (Test-Path $goDesktopLnk)) { throw "Go desktop shortcut missing: $goDesktopLnk" }
+          $goApp = Get-AppInstallation -namePattern "WONDERX V1" -excludePattern "Rust"
+          if (-not $goApp) {
+            $goApp = Get-AppInstallation -namePattern "FlClash" -excludePattern "Rust"
+          }
+          if (-not $goApp) { throw "Go version could not be located via registry InstallLocation or filesystem search!" }
+          $goExe = $goApp.Exe
+          Write-Host "Go version located at: $goExe"
+
+          $goDesktopLnk = Find-DesktopShortcut -namePattern "WONDERX V1" -excludePattern "Rust"
+          if (-not $goDesktopLnk) {
+            $goDesktopLnk = Find-DesktopShortcut -namePattern "FlClash" -excludePattern "Rust"
+          }
+          if (-not $goDesktopLnk) { throw "Go desktop shortcut missing!" }
+          Write-Host "Go desktop shortcut located at: $goDesktopLnk"
 
           # 3. Install Rust version
           Write-Host "Installing Rust version silently..."
           Start-Process -FilePath $setup.FullName -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -Wait
-          $rustExe = "C:\Program Files\WONDERX V1 Rust\FlClash.exe"
-          if (-not (Test-Path $rustExe)) { throw "Rust version was not installed at $rustExe" }
-          $rustDesktopLnk = Join-Path $desktop "WONDERX V1 Rust.lnk"
-          if (-not (Test-Path $rustDesktopLnk)) { throw "Rust desktop shortcut missing: $rustDesktopLnk" }
+          $rustApp = Get-AppInstallation -namePattern "Rust"
+          if (-not $rustApp) { throw "Rust version could not be located via registry InstallLocation or filesystem search!" }
+          $rustExe = $rustApp.Exe
+          Write-Host "Rust version located at: $rustExe"
+
+          $rustDesktopLnk = Find-DesktopShortcut -namePattern "Rust"
+          if (-not $rustDesktopLnk) { throw "Rust desktop shortcut missing!" }
+          Write-Host "Rust desktop shortcut located at: $rustDesktopLnk"
 
           # 4. Verify Dual Coexistence & Shortcuts (Section N & O)
           Write-Host "Verifying Dual Coexistence..."
+          if ($goApp.Dir -eq $rustApp.Dir) { throw "Go and Rust installed into identical directory: $($goApp.Dir)" }
           if (-not (Test-Path $goExe)) { throw "Go executable was overwritten by Rust installer!" }
           if (-not (Test-Path $rustExe)) { throw "Rust executable missing!" }
           if (-not (Test-Path $goDesktopLnk)) { throw "Go desktop shortcut was deleted!" }
@@ -786,7 +881,7 @@ jobs:
 
           # 5. Uninstall Rust version and verify Go still launches
           Write-Host "Uninstalling Rust version..."
-          $rustUninst = "C:\Program Files\WONDERX V1 Rust\unins000.exe"
+          $rustUninst = $rustApp.Uninst
           if (Test-Path $rustUninst) {
             Start-Process -FilePath $rustUninst -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -Wait
           }
@@ -807,7 +902,7 @@ jobs:
           Write-Host "Go launch test exit code: $($p.ExitCode)"
 
           # Clean up Go version
-          $goUninst = "C:\Program Files\WONDERX V1\unins000.exe"
+          $goUninst = $goApp.Uninst
           if (Test-Path $goUninst) {
             Start-Process -FilePath $goUninst -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -Wait
           }
