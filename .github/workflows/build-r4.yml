@@ -680,7 +680,7 @@ jobs:
 
           echo "Pre-fetching Go official installer for coexistence test..."
           mkdir -p ../go_setup_dir
-          GO_TAG="wonderx-v1-0.9.3-signed-20261107-9a383e58"
+          GO_TAG="wonderx-v1-0.9.3-signed-20261109-ab25cd7d-r2"
           if ! gh release download "$GO_TAG" --repo worldneedme/ci-w4r7n -p "*setup.exe" -D ../go_setup_dir --clobber; then
             echo "gh download failed, attempting curl with token..."
             ASSET_URL=$(gh release view "$GO_TAG" --repo worldneedme/ci-w4r7n --json assets -q '.assets[] | select(.name | endswith("setup.exe")) | .url' || true)
@@ -763,7 +763,7 @@ jobs:
 
           # 1. Fetch Go official signed installer (or use pre-fetched)
           Write-Host "Locating or fetching Go official signed installer..."
-          $goTag = "wonderx-v1-0.9.3-signed-20261107-9a383e58"
+          $goTag = "wonderx-v1-0.9.3-signed-20261109-ab25cd7d-r2"
           New-Item -ItemType Directory -Force -Path go_setup_dir | Out-Null
           $goSetup = Get-ChildItem -Path '.\go_setup_dir' -Filter '*setup.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
           if (-not $goSetup) {
