@@ -389,7 +389,7 @@ jobs:
         run: |
           flutter pub get
           echo "Running Flutter unit & widget tests (Section Q)..."
-          flutter test test/views/dashboard/network_speed_test.dart test/views/dashboard/proxy_groups_card_test.dart test/wonderx_brand_contract_test.dart test/setup_test.dart
+          flutter test test/views/dashboard/network_speed_test.dart test/views/dashboard/proxy_groups_card_test.dart test/views/dashboard/current_outbound_test.dart test/views/dashboard/layout_test.dart test/l10n/localization_contract_test.dart test/l10n/app_localizations_test.dart test/wonderx_brand_contract_test.dart test/setup_test.dart
           dart setup.dart android --arch arm64 -v
 
       - name: Verify package outputs, Cert Fingerprint & Dependency Whitelist Check
@@ -655,7 +655,7 @@ jobs:
         run: |
           flutter pub get
           echo "Running Flutter unit & widget tests (Section Q)..."
-          flutter test test/views/dashboard/network_speed_test.dart test/views/dashboard/proxy_groups_card_test.dart test/wonderx_brand_contract_test.dart test/setup_test.dart
+          flutter test test/views/dashboard/network_speed_test.dart test/views/dashboard/proxy_groups_card_test.dart test/views/dashboard/current_outbound_test.dart test/views/dashboard/layout_test.dart test/l10n/localization_contract_test.dart test/l10n/app_localizations_test.dart test/wonderx_brand_contract_test.dart test/setup_test.dart
           DLL_DIR=".dart_tool/hooks_runner/shared/sqlite3/build/download-98b4be67"
           mkdir -p "$DLL_DIR"
           echo "Pre-fetching sqlite3.x64.windows.dll..."
