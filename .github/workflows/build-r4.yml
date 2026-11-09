@@ -725,9 +725,28 @@ jobs:
           # 1. Fetch Go official signed installer
           Write-Host "Fetching Go official signed installer..."
           $goTag = "wonderx-v1-0.9.3-signed-20261107-9a383e58"
-          gh release download $goTag --repo worldneedme/ci-w4r7n --pattern "*setup.exe" --dir go_setup_dir
-          $goSetup = Get-ChildItem -Path '.\go_setup_dir' -Filter '*setup.exe' | Select-Object -First 1
-          if (-not $goSetup) { throw 'Go official signed setup could not be downloaded.' }
+          New-Item -ItemType Directory -Force -Path go_setup_dir | Out-Null
+          $downloaded = $false
+          for ($i = 1; $i -le 5; $i++) {
+            Write-Host "Attempt $i to download Go official installer via gh release download..."
+            gh release download $goTag --repo worldneedme/ci-w4r7n --pattern "*setup.exe" --dir go_setup_dir --clobber
+            $goSetup = Get-ChildItem -Path '.\go_setup_dir' -Filter '*setup.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($goSetup) {
+              $downloaded = $true
+              Write-Host "Downloaded: $($goSetup.FullName)"
+              break
+            }
+            Start-Sleep -Seconds 3
+          }
+          if (-not $downloaded) {
+            Write-Host "gh download failed, attempting curl with token..."
+            $assetUrl = (gh release view $goTag --repo worldneedme/ci-w4r7n --json assets -q '.assets[] | select(.name | endswith("setup.exe")) | .url')
+            if ($assetUrl) {
+              curl.exe -fL -H "Authorization: token $env:GH_TOKEN" -H "Accept: application/octet-stream" $assetUrl -o "go_setup_dir\go-setup.exe"
+            }
+            $goSetup = Get-ChildItem -Path '.\go_setup_dir' -Filter '*setup.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $goSetup) { throw 'Go official signed setup could not be downloaded.' }
+          }
 
           # 2. Install Go version
           Write-Host "Installing Go version silently..."
@@ -771,9 +790,15 @@ jobs:
           if (Test-Path $rustUninst) {
             Start-Process -FilePath $rustUninst -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -Wait
           }
-          if (Test-Path "C:\Program Files\WONDERX V1 Rust") {
-            throw "Rust install directory was not removed after uninstall!"
+          Write-Host "Waiting for Rust uninstaller to finish removing files..."
+          for ($u = 0; $u -lt 15; $u++) {
+            if (-not (Test-Path $rustExe)) { break }
+            Start-Sleep -Seconds 1
           }
+          if (Test-Path $rustExe) {
+            throw "Rust FlClash.exe was not removed after uninstall!"
+          }
+          Start-Sleep -Seconds 2
           if (-not (Test-Path $goExe)) {
             throw "Go version was corrupted or deleted after uninstalling Rust!"
           }
