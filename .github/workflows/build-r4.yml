@@ -78,8 +78,12 @@ jobs:
           workspaces: core -> target
 
       - name: Install official mita (server binary only)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          curl -fsSL -o mita.deb "https://github.com/enfein/mieru/releases/download/v3.34.1/mita_3.34.1_amd64.deb"
+          if ! gh release download v3.34.1 --repo enfein/mieru -p "mita_3.34.1_amd64.deb" -O mita.deb --clobber; then
+            curl -fsSL -o mita.deb "https://github.com/enfein/mieru/releases/download/v3.34.1/mita_3.34.1_amd64.deb"
+          fi
           sudo dpkg -i mita.deb
           sudo mita apply config core/crates/wonderx-ext/ci/mita-server.json
           sudo mita start
@@ -87,9 +91,13 @@ jobs:
           sudo mita status || true
 
       - name: Install Caddy with naive forwardproxy
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          URL=$(curl -fsSL https://api.github.com/repos/klzgrad/forwardproxy/releases/latest | jq -r '.assets[].browser_download_url' | grep -E 'caddy-forwardproxy-naive.tar.xz' | head -1)
-          curl -fsSL -o caddy.tar.xz "$URL"
+          if ! gh release download --repo klzgrad/forwardproxy -p "*caddy-forwardproxy-naive.tar.xz" -O caddy.tar.xz --clobber; then
+            URL=$(curl -fsSL https://api.github.com/repos/klzgrad/forwardproxy/releases/latest | jq -r '.assets[].browser_download_url' | grep -E 'caddy-forwardproxy-naive.tar.xz' | head -1)
+            curl -fsSL -o caddy.tar.xz "$URL"
+          fi
           mkdir caddybin && tar -xf caddy.tar.xz -C caddybin
           CADDY=$(find caddybin -type f -name caddy | head -1); chmod +x "$CADDY"
           mkdir -p /tmp/www && echo ok > /tmp/www/index.html
@@ -97,8 +105,12 @@ jobs:
           sleep 4
 
       - name: Install official juicity-server
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          curl -fsSL -o juicity.zip "https://github.com/juicity/juicity/releases/download/v0.5.0/juicity-linux-x86_64.zip"
+          if ! gh release download v0.5.0 --repo juicity/juicity -p "juicity-linux-x86_64.zip" -O juicity.zip --clobber; then
+            curl -fsSL -o juicity.zip "https://github.com/juicity/juicity/releases/download/v0.5.0/juicity-linux-x86_64.zip"
+          fi
           unzip -q juicity.zip -d juicitybin
           chmod +x juicitybin/juicity-server
           mkdir -p /tmp/juicity
@@ -326,13 +338,17 @@ jobs:
 
       - name: Download Naive helper for Android
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           version=$(curl -fsSL https://api.github.com/repos/klzgrad/naiveproxy/releases/latest | sed -nE 's/.*"tag_name": "([^"]+)".*/\1/p' | head -1)
           test -n "$version"
           apk="naiveproxy-plugin-${version}-arm64-v8a.apk"
           mkdir -p naive_tmp client/android/app/src/main/jniLibs/arm64-v8a
-          curl -fL -o "naive_tmp/$apk" "https://github.com/klzgrad/naiveproxy/releases/download/${version}/${apk}"
+          if ! gh release download "${version}" --repo klzgrad/naiveproxy -p "${apk}" -O "naive_tmp/${apk}" --clobber; then
+            curl -fL -o "naive_tmp/$apk" "https://github.com/klzgrad/naiveproxy/releases/download/${version}/${apk}"
+          fi
           unzip -o "naive_tmp/$apk" 'lib/arm64-v8a/libnaive.so' -d naive_tmp/extracted
           cp naive_tmp/extracted/lib/arm64-v8a/libnaive.so client/android/app/src/main/jniLibs/arm64-v8a/
           test -s client/android/app/src/main/jniLibs/arm64-v8a/libnaive.so
