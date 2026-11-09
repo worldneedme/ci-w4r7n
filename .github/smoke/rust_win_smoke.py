@@ -366,6 +366,14 @@ async def session(core, home, cwd, env, label, variants, setup_timeout):
             if "core-epoch" not in rc_res or "route-version" not in rc_res or "held" not in rc_res:
                 results["route_check_error"] = f"route.check missing core-epoch/route-version/held: {rc_res}"
 
+            # G: core.memory returns positive RSS (read_rss_bytes invocation verification)
+            r_mem, _ = await host.call("core.memory", None, 10)
+            mem_res = r_mem.get("result") or {}
+            rss = mem_res.get("rss", 0)
+            print(f"  [{label}] core.memory: rss={rss} bytes ({rss / (1024*1024):.2f} MB)")
+            if rss <= 0:
+                results["memory_error"] = f"core.memory expected positive rss, got {mem_res}"
+
         except Exception as e:
             print(f"  [{label}] functional verification error: {e}")
             results["functional_error"] = str(e)

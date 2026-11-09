@@ -132,6 +132,13 @@ jobs:
           cd core
           cargo test -p wonderx-mobile --quiet -- --test-threads=1 --nocapture
 
+      - name: Run wonderx-service tests (Linux)
+        env:
+          RUSTFLAGS: "-Awarnings"
+        run: |
+          cd core
+          cargo test -p wonderx-service --quiet -- --nocapture
+
       - name: Build Linux FlClashCore binary (for G13 verification)
         run: |
           cd core

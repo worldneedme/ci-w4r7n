@@ -137,5 +137,7 @@ jobs:
           name: contract-diff-${{ github.run_id }}
           path: |
             contract-diff-report.md
+            WONDERX-RUST-测速对比-r14.md
+            WONDERX-RUST-内存对比-r14.md
             contract-logs/**
           if-no-files-found: ignore
