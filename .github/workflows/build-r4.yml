@@ -629,12 +629,16 @@ jobs:
       - name: Package Windows Desktop
         working-directory: client
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           flutter pub get
           DLL_DIR=".dart_tool/hooks_runner/shared/sqlite3/build/download-98b4be67"
           mkdir -p "$DLL_DIR"
           echo "Pre-fetching sqlite3.x64.windows.dll..."
-          curl -fL --retry 5 --retry-delay 2 "https://github.com/simolus3/sqlite3.dart/releases/download/sqlite3-3.7.0/sqlite3.x64.windows.dll" -o "$DLL_DIR/sqlite3.dll"
+          if ! gh release download sqlite3-3.7.0 --repo simolus3/sqlite3.dart -p "sqlite3.x64.windows.dll" -O "$DLL_DIR/sqlite3.dll" --clobber; then
+            curl -fL --retry 5 --retry-delay 2 "https://github.com/simolus3/sqlite3.dart/releases/download/sqlite3-3.7.0/sqlite3.x64.windows.dll" -o "$DLL_DIR/sqlite3.dll"
+          fi
           EXPECTED="98b4be674137b85ec111a7a29223e87aa41c3e964d61f73602471ddd7b9c56ce"
           ACTUAL=$(sha256sum "$DLL_DIR/sqlite3.dll" | awk '{print $1}')
           if [ "$ACTUAL" != "$EXPECTED" ]; then
