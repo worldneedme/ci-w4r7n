@@ -389,7 +389,7 @@ jobs:
         run: |
           flutter pub get
           echo "Running Flutter unit & widget tests (Section Q)..."
-          flutter test test/views/dashboard/network_speed_test.dart test/views/dashboard/proxy_groups_card_test.dart test/views/dashboard/current_outbound_test.dart test/views/dashboard/layout_test.dart test/l10n/localization_contract_test.dart test/l10n/app_localizations_test.dart test/wonderx_brand_contract_test.dart test/setup_test.dart
+          flutter test test/views/dashboard/network_speed_test.dart test/views/dashboard/proxy_groups_card_test.dart test/views/dashboard/current_outbound_test.dart test/views/dashboard/layout_test.dart test/l10n/localization_contract_test.dart test/l10n/app_localizations_test.dart test/wonderx_brand_contract_test.dart test/setup_test.dart test/wonderx_rust_helper_isolation_test.dart test/core/transport_test.dart test/core/desktop/helper_client_test.dart
           dart setup.dart android --arch arm64 -v
 
       - name: Verify package outputs, Cert Fingerprint & Dependency Whitelist Check
@@ -634,6 +634,14 @@ jobs:
           git checkout ${{ inputs.client_ref }}
           git submodule update --init --recursive
 
+      - name: Rust Helper tests (Windows service)
+        shell: bash
+        working-directory: client
+        run: |
+          rustup component add rustfmt
+          cargo fmt --manifest-path services/helper/Cargo.toml -- --check
+          cargo test --manifest-path services/helper/Cargo.toml --features windows-service
+
       - name: Replace FlClashCore.exe with new r4 build
         shell: bash
         run: |
@@ -655,7 +663,7 @@ jobs:
         run: |
           flutter pub get
           echo "Running Flutter unit & widget tests (Section Q)..."
-          flutter test test/views/dashboard/network_speed_test.dart test/views/dashboard/proxy_groups_card_test.dart test/views/dashboard/current_outbound_test.dart test/views/dashboard/layout_test.dart test/l10n/localization_contract_test.dart test/l10n/app_localizations_test.dart test/wonderx_brand_contract_test.dart test/setup_test.dart
+          flutter test test/views/dashboard/network_speed_test.dart test/views/dashboard/proxy_groups_card_test.dart test/views/dashboard/current_outbound_test.dart test/views/dashboard/layout_test.dart test/l10n/localization_contract_test.dart test/l10n/app_localizations_test.dart test/wonderx_brand_contract_test.dart test/setup_test.dart test/wonderx_rust_helper_isolation_test.dart test/core/transport_test.dart test/core/desktop/helper_client_test.dart
           DLL_DIR=".dart_tool/hooks_runner/shared/sqlite3/build/download-98b4be67"
           mkdir -p "$DLL_DIR"
           echo "Pre-fetching sqlite3.x64.windows.dll..."
@@ -705,9 +713,10 @@ jobs:
           $root = Join-Path (Get-Location).Path 'smoke'
           Expand-Archive -LiteralPath $zip.FullName -DestinationPath $root -Force
           $exe = Join-Path $root 'FlClash.exe'
-          foreach ($required in @('FlClash.exe', 'FlClashCore.exe', 'manifest.json', 'protocol-helpers\naive.exe', 'FlClashHelperService.exe')) {
+          foreach ($required in @('FlClash.exe', 'FlClashCore.exe', 'manifest.json', 'protocol-helpers\naive.exe', 'FlClashHelperServiceRust.exe')) {
             if (-not (Test-Path (Join-Path $root $required))) { throw "$required is missing from archive" }
           }
+          if (Test-Path (Join-Path $root 'FlClashHelperService.exe')) { throw 'archive ships the Go Helper name FlClashHelperService.exe' }
           $process = Start-Process -FilePath $exe -WorkingDirectory $root -WindowStyle Hidden -PassThru
           Start-Sleep -Seconds 10
           $process.Refresh()
@@ -879,6 +888,37 @@ jobs:
           if (-not $goDesktopLnk) { throw "Go desktop shortcut missing!" }
           Write-Host "Go desktop shortcut located at: $goDesktopLnk"
 
+          # 2b. Go build running with its own Helper service, as on a user's PC
+          function Get-HelperPort([string]$svc) {
+            try { (Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Services\$svc\Runtime" -Name Port -ErrorAction Stop).Port } catch { $null }
+          }
+          function Get-ServiceExe([string]$svc) {
+            $c = Get-CimInstance Win32_Service -Filter "Name='$svc'" -ErrorAction SilentlyContinue
+            if ($c) { $c.PathName } else { $null }
+          }
+          function Assert-HelperPing([string]$svc, [string]$dir) {
+            $port = Get-HelperPort $svc
+            if (-not $port) { throw "$svc published no port" }
+            $sha = (Get-Content (Join-Path $dir 'manifest.json') -Raw | ConvertFrom-Json).coreSha256
+            $resp = Invoke-WebRequest -UseBasicParsing -NoProxy -TimeoutSec 15 -Uri "http://127.0.0.1:$port/ping?coreSha256=$sha"
+            if ($resp.StatusCode -ne 200) { throw "$svc ping returned $($resp.StatusCode)" }
+            Write-Host "$svc ping OK on port $port"
+          }
+          $goDir = $goApp.Dir
+          $goHelper = Join-Path $goDir 'FlClashHelperService.exe'
+          if (-not (Test-Path $goHelper)) { throw "Go Helper missing: $goHelper" }
+          & $goHelper install --owner-pid $PID
+          if ($LASTEXITCODE -ne 0) { throw "Go Helper install exited $LASTEXITCODE" }
+          Start-Sleep -Seconds 3
+          if ((Get-Service FlClashHelperService -ErrorAction Stop).Status -ne 'Running') { throw 'Go Helper service is not running' }
+          $goSvcExe = Get-ServiceExe 'FlClashHelperService'
+          Write-Host "Go Helper service: $goSvcExe"
+          Assert-HelperPing 'FlClashHelperService' $goDir
+          $goProc = Start-Process -FilePath $goExe -WorkingDirectory $goDir -WindowStyle Hidden -PassThru
+          Start-Sleep -Seconds 10
+          $goProc.Refresh()
+          if ($goProc.HasExited) { throw "Go app exited on its own before the Rust install (code $($goProc.ExitCode))" }
+
           # 3. Install Rust version
           Write-Host "Installing Rust version silently..."
           Start-Process -FilePath $setup.FullName -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -Wait
@@ -911,6 +951,39 @@ jobs:
             $icon.Dispose()
           }
 
+          # 4b. The Rust install left the running Go app and its Helper alone
+          $goProc.Refresh()
+          if ($goProc.HasExited) { throw "Rust installer closed the running Go app (exit $($goProc.ExitCode))" }
+          if ((Get-Service FlClashHelperService -ErrorAction Stop).Status -ne 'Running') { throw 'Rust install stopped the Go Helper service' }
+          if ((Get-ServiceExe 'FlClashHelperService') -ne $goSvcExe) { throw 'Rust install re-pointed the Go Helper service' }
+          $rustDir = $rustApp.Dir
+          if (Test-Path (Join-Path $rustDir 'FlClashHelperService.exe')) { throw 'Rust install ships the Go Helper name' }
+          $rustHelper = Join-Path $rustDir 'FlClashHelperServiceRust.exe'
+          if (-not (Test-Path $rustHelper)) { throw "Rust Helper missing: $rustHelper" }
+
+          # 4c. Rust Helper registers its own service next to the Go one (what the app does when TUN is turned on)
+          & $rustHelper install --owner-pid $PID
+          if ($LASTEXITCODE -ne 0) { throw "Rust Helper install exited $LASTEXITCODE" }
+          Start-Sleep -Seconds 3
+          if ((Get-Service FlClashHelperServiceRust -ErrorAction Stop).Status -ne 'Running') { throw 'Rust Helper service is not running' }
+          $rustSvcExe = Get-ServiceExe 'FlClashHelperServiceRust'
+          Write-Host "Rust Helper service: $rustSvcExe"
+          if ($rustSvcExe -notlike "*$rustHelper*") { throw "Rust Helper service points at $rustSvcExe" }
+          if ((Get-ServiceExe 'FlClashHelperService') -ne $goSvcExe -or (Get-Service FlClashHelperService).Status -ne 'Running') { throw 'Installing the Rust Helper disturbed the Go Helper' }
+          $goPort = Get-HelperPort 'FlClashHelperService'
+          $rustPort = Get-HelperPort 'FlClashHelperServiceRust'
+          Write-Host "Helper ports: Go=$goPort Rust=$rustPort"
+          if (-not $goPort -or -not $rustPort -or $goPort -eq $rustPort) { throw "Helper ports are not distinct: Go=$goPort Rust=$rustPort" }
+          Assert-HelperPing 'FlClashHelperServiceRust' $rustDir
+          Assert-HelperPing 'FlClashHelperService' $goDir
+
+          # 4d. Real TUN through the installed Rust Helper: adapter Up, routes, no-proxy traffic seen by the core, clean stop
+          python .github/smoke/rust_helper_tun_gate.py --port $rustPort --app-dir $rustDir --realshape .github/smoke/realshape_sanitized.yaml --out helper-tun-out
+          if ($LASTEXITCODE -ne 0) { throw 'Rust Helper TUN gate failed' }
+          Assert-HelperPing 'FlClashHelperService' $goDir
+          $goProc.Refresh()
+          if ($goProc.HasExited) { throw 'Go app died during the Rust TUN session' }
+
           # 5. Uninstall Rust version and verify Go still launches
           Write-Host "Uninstalling Rust version..."
           $rustUninst = $rustApp.Uninst
@@ -925,6 +998,15 @@ jobs:
           if (Test-Path $rustExe) {
             throw "Rust FlClash.exe was not removed after uninstall!"
           }
+          Start-Sleep -Seconds 2
+          if (Get-Service FlClashHelperServiceRust -ErrorAction SilentlyContinue) { throw 'Rust Helper service left behind after uninstall' }
+          if ((Get-Service FlClashHelperService -ErrorAction Stop).Status -ne 'Running') { throw 'Rust uninstall stopped the Go Helper service' }
+          if ((Get-ServiceExe 'FlClashHelperService') -ne $goSvcExe) { throw 'Rust uninstall re-pointed the Go Helper service' }
+          Assert-HelperPing 'FlClashHelperService' $goDir
+          $goProc.Refresh()
+          if ($goProc.HasExited) { throw 'Rust uninstall closed the running Go app' }
+          Stop-Process -Id $goProc.Id -Force -ErrorAction SilentlyContinue
+          Get-Process -Name FlClashCore -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($goDir, [StringComparison]::OrdinalIgnoreCase) } | Stop-Process -Force -ErrorAction SilentlyContinue
           Start-Sleep -Seconds 2
           if (-not (Test-Path $goExe)) {
             throw "Go version was corrupted or deleted after uninstalling Rust!"
