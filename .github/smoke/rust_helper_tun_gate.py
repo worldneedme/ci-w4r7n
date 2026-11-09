@@ -17,6 +17,7 @@ import argparse
 import asyncio
 import hashlib
 import json
+import socket
 import os
 import subprocess
 import sys
@@ -152,21 +153,54 @@ async def run(a):
         if routes < 1:
             fails.append("no routes on TUN adapter")
 
-        targets = [("ip", "http://1.1.1.1/cdn-cgi/trace", "1.1.1.1"),
-                   ("domain", "https://www.gstatic.com/generate_204", "gstatic.com")]
-        for kind, url, _ in targets:
+        # connection.list only holds LIVE connections (as in Go mihomo), so a
+        # finished request vanishes from it. Prove TUN capture two ways:
+        # (1) each no-proxy fetch must raise the core's traffic counter;
+        # (2) a socket held open to each target must show in connection.list.
+        def down_total(tt):
+            return int(((tt or {}).get("result") or {}).get("down") or 0)
+
+        targets = [("ip", "http://1.1.1.1/cdn-cgi/trace", "1.1.1.1", 80),
+                   ("domain", "https://www.gstatic.com/generate_204", "www.gstatic.com", 443)]
+        for kind, url, host_name, port in targets:
+            before, _ = await host.call("traffic.total", None, 30)
             code, secs, err = await loop.run_in_executor(None, fetch, url)
-            print("fetch %s %s -> %s %.2fs %s" % (kind, url, code, secs, err or ""))
+            await asyncio.sleep(1.5)
+            after, _ = await host.call("traffic.total", None, 30)
+            delta = down_total(after) - down_total(before)
+            print("fetch %s %s -> %s %.2fs %s core down +%d" % (kind, url, code, secs, err or "", delta))
             if code is None or code >= 400:
                 fails.append("no-proxy %s request through TUN failed: %s %s" % (kind, code, err))
+            if delta < 200:
+                fails.append("core traffic did not grow for the %s request (+%d B): traffic bypassed TUN" % (kind, delta))
 
-        cl, _ = await host.call("connection.list", None, 30)
-        dump = json.dumps(cl, ensure_ascii=False)
-        tt, _ = await host.call("traffic.total", None, 30)
-        print("connection.list bytes=%d traffic.total=%s" % (len(dump), short(tt, 200)))
-        for kind, _, needle in targets:
-            if needle not in dump:
-                fails.append("core did not see the %s connection (%s): traffic bypassed TUN" % (kind, needle))
+            try:
+                ips = sorted({ai[4][0] for ai in socket.getaddrinfo(host_name, port, socket.AF_INET, socket.SOCK_STREAM)})
+            except Exception as e:  # noqa
+                ips = []
+                print("resolve %s failed: %r" % (host_name, e))
+            sock = None
+            try:
+                sock = await loop.run_in_executor(None, lambda: socket.create_connection((host_name, port), 10))
+                seen = False
+                dump = ""
+                for _ in range(10):
+                    await asyncio.sleep(0.5)
+                    cl, _ = await host.call("connection.list", None, 30)
+                    dump = json.dumps(cl, ensure_ascii=False)
+                    needles = [host_name] + ips
+                    if any(n in dump for n in needles):
+                        seen = True
+                        break
+                print("held %s connection to %s %s: seen=%s connection.list bytes=%d" % (kind, host_name, ips, seen, len(dump)))
+                if not seen:
+                    print("connection.list:", dump[:1500])
+                    fails.append("core did not list the live %s connection (%s): traffic bypassed TUN" % (kind, host_name))
+            except Exception as e:  # noqa
+                fails.append("could not hold a %s connection to %s: %r" % (kind, host_name, e))
+            finally:
+                if sock:
+                    sock.close()
     except ConnectionError as e:
         fails.append("pipe closed: %s" % e)
     finally:
