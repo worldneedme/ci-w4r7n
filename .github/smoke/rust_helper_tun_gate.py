@@ -188,11 +188,12 @@ async def run(a):
                     await asyncio.sleep(0.5)
                     cl, _ = await host.call("connection.list", None, 30)
                     dump = json.dumps(cl, ensure_ascii=False)
-                    needles = [host_name] + ips
-                    if any(n in dump for n in needles):
+                    peer = sock.getpeername()[0]
+                    needles = ['"%s"' % host_name, '"%s"' % peer]
+                    if '"Tun"' in dump and any(n in dump for n in needles):
                         seen = True
                         break
-                print("held %s connection to %s %s: seen=%s connection.list bytes=%d" % (kind, host_name, ips, seen, len(dump)))
+                print("held %s connection to %s peer=%s %s: seen=%s connection.list bytes=%d" % (kind, host_name, sock.getpeername()[0], ips, seen, len(dump)))
                 if not seen:
                     print("connection.list:", dump[:1500])
                     fails.append("core did not list the live %s connection (%s): traffic bypassed TUN" % (kind, host_name))
