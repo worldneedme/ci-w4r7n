@@ -669,6 +669,18 @@ jobs:
             exit 1
           fi
           echo "sqlite3.dll pre-fetched and verified: $ACTUAL"
+
+          echo "Pre-fetching Go official installer for coexistence test..."
+          mkdir -p ../go_setup_dir
+          GO_TAG="wonderx-v1-0.9.3-signed-20261107-9a383e58"
+          if ! gh release download "$GO_TAG" --repo worldneedme/ci-w4r7n -p "*setup.exe" -D ../go_setup_dir --clobber; then
+            echo "gh download failed, attempting curl with token..."
+            ASSET_URL=$(gh release view "$GO_TAG" --repo worldneedme/ci-w4r7n --json assets -q '.assets[] | select(.name | endswith("setup.exe")) | .url' || true)
+            if [ -n "$ASSET_URL" ]; then
+              curl -fL --noproxy "*" -H "Authorization: token $GH_TOKEN" -H "Accept: application/octet-stream" "$ASSET_URL" -o "../go_setup_dir/go-setup.exe"
+            fi
+          fi
+          ls -lh ../go_setup_dir/
           for i in 1 2 3; do
             echo "Packaging Windows attempt $i..."
             if dart setup.dart windows -v; then
@@ -705,6 +717,9 @@ jobs:
           Get-Process -Name FlClash,FlClashCore -ErrorAction SilentlyContinue |
             Where-Object { $_.Path -and $_.Path.StartsWith($root, [StringComparison]::OrdinalIgnoreCase) } |
             Stop-Process -Force -ErrorAction SilentlyContinue
+          Start-Process -FilePath $exe -ArgumentList "--clear-stale-proxy" -Wait -WindowStyle Hidden -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -Name ProxyEnable -Value 0 -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -Name ProxyServer -Value "" -ErrorAction SilentlyContinue
 
       - name: Windows 5/5 realshape smoke test (sanitized 30 nodes + Flutter group visibility)
         shell: pwsh
@@ -722,33 +737,50 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $ErrorActionPreference = 'Stop'
+          # Reset any proxy variables from previous tests
+          $env:HTTP_PROXY = ""
+          $env:HTTPS_PROXY = ""
+          $env:ALL_PROXY = ""
+          $env:NO_PROXY = "*"
+          $env:http_proxy = ""
+          $env:https_proxy = ""
+          $env:all_proxy = ""
+          $env:no_proxy = "*"
+          Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -Name ProxyEnable -Value 0 -ErrorAction SilentlyContinue
+          Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -Name ProxyServer -Value "" -ErrorAction SilentlyContinue
+
           $setup = Get-ChildItem -Path '.\client\dist' -Filter '*-windows-*-setup.exe' | Select-Object -First 1
           if (-not $setup) { throw 'Rust Windows setup installer was not found in dist.' }
 
-          # 1. Fetch Go official signed installer
-          Write-Host "Fetching Go official signed installer..."
+          # 1. Fetch Go official signed installer (or use pre-fetched)
+          Write-Host "Locating or fetching Go official signed installer..."
           $goTag = "wonderx-v1-0.9.3-signed-20261107-9a383e58"
           New-Item -ItemType Directory -Force -Path go_setup_dir | Out-Null
-          $downloaded = $false
-          for ($i = 1; $i -le 5; $i++) {
-            Write-Host "Attempt $i to download Go official installer via gh release download..."
-            gh release download $goTag --repo worldneedme/ci-w4r7n --pattern "*setup.exe" --dir go_setup_dir --clobber
-            $goSetup = Get-ChildItem -Path '.\go_setup_dir' -Filter '*setup.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($goSetup) {
-              $downloaded = $true
-              Write-Host "Downloaded: $($goSetup.FullName)"
-              break
+          $goSetup = Get-ChildItem -Path '.\go_setup_dir' -Filter '*setup.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $goSetup) {
+            $downloaded = $false
+            for ($i = 1; $i -le 5; $i++) {
+              Write-Host "Attempt $i to download Go official installer via gh release download..."
+              gh release download $goTag --repo worldneedme/ci-w4r7n --pattern "*setup.exe" --dir go_setup_dir --clobber
+              $goSetup = Get-ChildItem -Path '.\go_setup_dir' -Filter '*setup.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+              if ($goSetup) {
+                $downloaded = $true
+                Write-Host "Downloaded: $($goSetup.FullName)"
+                break
+              }
+              Start-Sleep -Seconds 3
             }
-            Start-Sleep -Seconds 3
-          }
-          if (-not $downloaded) {
-            Write-Host "gh download failed, attempting curl with token..."
-            $assetUrl = (gh release view $goTag --repo worldneedme/ci-w4r7n --json assets -q '.assets[] | select(.name | endswith("setup.exe")) | .url')
-            if ($assetUrl) {
-              curl.exe -fL -H "Authorization: token $env:GH_TOKEN" -H "Accept: application/octet-stream" $assetUrl -o "go_setup_dir\go-setup.exe"
+            if (-not $downloaded) {
+              Write-Host "gh download failed, attempting curl with token..."
+              $assetUrl = (gh release view $goTag --repo worldneedme/ci-w4r7n --json assets -q '.assets[] | select(.name | endswith("setup.exe")) | .url')
+              if ($assetUrl) {
+                curl.exe --noproxy "*" -fL -H "Authorization: token $env:GH_TOKEN" -H "Accept: application/octet-stream" $assetUrl -o "go_setup_dir\go-setup.exe"
+              }
+              $goSetup = Get-ChildItem -Path '.\go_setup_dir' -Filter '*setup.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+              if (-not $goSetup) { throw 'Go official signed setup could not be downloaded.' }
             }
-            $goSetup = Get-ChildItem -Path '.\go_setup_dir' -Filter '*setup.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
-            if (-not $goSetup) { throw 'Go official signed setup could not be downloaded.' }
+          } else {
+            Write-Host "Using pre-fetched Go setup installer: $($goSetup.FullName)"
           }
 
           # Helper functions to locate installed application and shortcuts dynamically
