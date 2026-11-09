@@ -10,7 +10,7 @@ on:
       core_commit:
         description: 'wonderx-core-rs commit'
         required: true
-        default: '2ff5374d4df8e29a2b774ca9afc4a0b8e128eaec'
+        default: 'e63ba3a24ec6b9a2b26ced51432cf628dff95e6c'
       client_ref:
         description: 'xxdmanfl0609 commit/branch'
         required: true
