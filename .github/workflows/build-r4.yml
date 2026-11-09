@@ -14,7 +14,7 @@ on:
       client_ref:
         description: 'xxdmanfl0609 commit/branch'
         required: true
-        default: 'd5763a22177878bd5fdc4b50bae3ac6b6bc9b99a'
+        default: 'ac3d892331460e3c7c41003facbfb9ced481f18a'
 
 permissions:
   contents: write
@@ -388,6 +388,8 @@ jobs:
           ANDROID_NDK_HOME: ${{ steps.build-ndk.outputs.ndk-path }}
         run: |
           flutter pub get
+          echo "Running Flutter unit & widget tests (Section Q)..."
+          flutter test test/views/dashboard/network_speed_test.dart test/views/dashboard/proxy_groups_card_test.dart test/wonderx_brand_contract_test.dart test/setup_test.dart
           dart setup.dart android --arch arm64 -v
 
       - name: Verify package outputs, Cert Fingerprint & Dependency Whitelist Check
@@ -649,6 +651,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           flutter pub get
+          echo "Running Flutter unit & widget tests (Section Q)..."
+          flutter test test/views/dashboard/network_speed_test.dart test/views/dashboard/proxy_groups_card_test.dart test/wonderx_brand_contract_test.dart test/setup_test.dart
           DLL_DIR=".dart_tool/hooks_runner/shared/sqlite3/build/download-98b4be67"
           mkdir -p "$DLL_DIR"
           echo "Pre-fetching sqlite3.x64.windows.dll..."
