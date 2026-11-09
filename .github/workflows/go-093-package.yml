@@ -256,6 +256,20 @@ jobs:
             test -n "$setup"
             test -n "$archive"
           fi
+          if [ "${{ matrix.platform }}" = android ]; then
+            apk_file=$(find ./dist -name '*.apk' -print -quit)
+            test -n "$apk_file"
+            echo "Checking certificate of $apk_file"
+            keytool -printcert -jarfile "$apk_file" | tee cert_info.txt
+            sha256=$(grep -i "SHA256:" cert_info.txt | head -1 | awk '{print $2}')
+            echo "Extracted SHA256: $sha256"
+            EXPECTED="440f4372f8cc4b7a5d2e3bda4b2598e9635b99bef61fa85bea14122bcdd4fe94"
+            if [[ "${sha256,,}" != "${EXPECTED,,}" ]]; then
+              echo "::error::Certificate fingerprint mismatch! Got: $sha256, Expected: $EXPECTED"
+              exit 1
+            fi
+            echo "Certificate fingerprint matched officially!"
+          fi
 
       - name: Windows startup smoke
         if: matrix.platform == 'windows'
@@ -282,6 +296,37 @@ jobs:
           Get-Process -Name FlClash,FlClashCore -ErrorAction SilentlyContinue |
             Where-Object { $_.Path -and $_.Path.StartsWith($root, [StringComparison]::OrdinalIgnoreCase) } |
             Stop-Process -Force -ErrorAction SilentlyContinue
+
+      - name: Windows installer shortcut smoke
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $setup = Get-ChildItem -Path '.\dist' -Filter '*-windows-*-setup.exe' | Select-Object -First 1
+          if (-not $setup) { throw 'Go Windows setup installer was not found in dist.' }
+
+          Write-Host "Installing Go version silently..."
+          Start-Process -FilePath $setup.FullName -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -Wait
+          $goExe = "C:\Program Files\WONDERX V1\FlClash.exe"
+          if (-not (Test-Path $goExe)) { throw "Go version was not installed at $goExe" }
+          $desktop = [Environment]::GetFolderPath("Desktop")
+          $goDesktopLnk = Join-Path $desktop "WONDERX V1.lnk"
+          if (-not (Test-Path $goDesktopLnk)) { throw "Go desktop shortcut missing: $goDesktopLnk" }
+
+          Add-Type -AssemblyName System.Drawing
+          $shell = New-Object -ComObject WScript.Shell
+          $sc = $shell.CreateShortcut($goDesktopLnk)
+          Write-Host "Go Shortcut -> Target: $($sc.TargetPath), Icon: $($sc.IconLocation)"
+          if (-not (Test-Path $sc.TargetPath)) { throw "Shortcut target does not exist: $($sc.TargetPath)" }
+          $icon = [System.Drawing.Icon]::ExtractAssociatedIcon($sc.TargetPath)
+          if ($null -eq $icon) { throw "Could not extract non-null icon from $($sc.TargetPath)" }
+          $icon.Dispose()
+
+          $goUninst = "C:\Program Files\WONDERX V1\unins000.exe"
+          if (Test-Path $goUninst) {
+            Start-Process -FilePath $goUninst -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -Wait
+          }
+          Write-Host "Go installer shortcut smoke passed!"
 
       - name: Generate checksums
         shell: bash

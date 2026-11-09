@@ -6,15 +6,15 @@ on:
       tag:
         description: 'Release tag'
         required: true
-        default: 'wonderx-v1-0.9.3-pure-rust-test-20261108-r13'
+        default: 'wonderx-v1-0.9.3-pure-rust-test-20261109-r14'
       core_commit:
         description: 'wonderx-core-rs commit'
         required: true
-        default: '3cff300a9cc0fd7487cf8369916f0a56a7d0cb58'
+        default: '2ff5374d4df8e29a2b774ca9afc4a0b8e128eaec'
       client_ref:
         description: 'xxdmanfl0609 commit/branch'
         required: true
-        default: 'f529fce6'
+        default: '372241f7a28ec8870da1d4de304818d542126732'
 
 permissions:
   contents: write
@@ -403,6 +403,24 @@ jobs:
           fi
           echo "Certificate fingerprint matched officially!"
 
+          echo "=== APK Identity & Coexistence Check (Section N) ==="
+          AAPT=$(find ${ANDROID_HOME:-$ANDROID_SDK_ROOT} -name aapt 2>/dev/null | sort -V | tail -1)
+          if [ -n "$AAPT" ] && [ -x "$AAPT" ]; then
+            pkg=$("$AAPT" dump badging "$apk_file" | grep "package: name=" | sed -E "s/.*package: name='([^']+)'.*/\1/")
+            echo "Extracted package name: $pkg"
+            if [ "$pkg" != "com.follow.clash.rust" ]; then
+              echo "::error::Expected applicationId com.follow.clash.rust, got $pkg"
+              exit 1
+            fi
+            label=$("$AAPT" dump badging "$apk_file" | grep "application-label:" | head -1 | sed -E "s/.*application-label:'([^']+)'.*/\1/")
+            echo "Extracted application label: $label"
+            if [ "$label" != "WONDERX V1 Rust" ]; then
+              echo "::error::Expected application-label 'WONDERX V1 Rust', got '$label'"
+              exit 1
+            fi
+            echo "APK package name and label verified successfully!"
+          fi
+
           echo "=== APK Native Library Dependency Check ==="
           mkdir -p /tmp/apk_inspect
           unzip -q -o "$apk_file" -d /tmp/apk_inspect
@@ -670,6 +688,81 @@ jobs:
             --app-dir "$root" `
             --realshape .github/smoke/realshape_sanitized.yaml `
             --loops 5
+
+      - name: Windows Installer Smoke & Coexistence Test (Section N & O)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $setup = Get-ChildItem -Path '.\client\dist' -Filter '*-windows-*-setup.exe' | Select-Object -First 1
+          if (-not $setup) { throw 'Rust Windows setup installer was not found in dist.' }
+
+          # 1. Fetch Go official signed installer
+          Write-Host "Fetching Go official signed installer..."
+          $goTag = "wonderx-v1-0.9.3-signed-20261107-9a383e58"
+          gh release download $goTag --repo worldneedme/ci-w4r7n --pattern "*setup.exe" --dir go_setup_dir
+          $goSetup = Get-ChildItem -Path '.\go_setup_dir' -Filter '*setup.exe' | Select-Object -First 1
+          if (-not $goSetup) { throw 'Go official signed setup could not be downloaded.' }
+
+          # 2. Install Go version
+          Write-Host "Installing Go version silently..."
+          Start-Process -FilePath $goSetup.FullName -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -Wait
+          $goExe = "C:\Program Files\WONDERX V1\FlClash.exe"
+          if (-not (Test-Path $goExe)) { throw "Go version was not installed at $goExe" }
+          $desktop = [Environment]::GetFolderPath("Desktop")
+          $goDesktopLnk = Join-Path $desktop "WONDERX V1.lnk"
+          if (-not (Test-Path $goDesktopLnk)) { throw "Go desktop shortcut missing: $goDesktopLnk" }
+
+          # 3. Install Rust version
+          Write-Host "Installing Rust version silently..."
+          Start-Process -FilePath $setup.FullName -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -Wait
+          $rustExe = "C:\Program Files\WONDERX V1 Rust\FlClash.exe"
+          if (-not (Test-Path $rustExe)) { throw "Rust version was not installed at $rustExe" }
+          $rustDesktopLnk = Join-Path $desktop "WONDERX V1 Rust.lnk"
+          if (-not (Test-Path $rustDesktopLnk)) { throw "Rust desktop shortcut missing: $rustDesktopLnk" }
+
+          # 4. Verify Dual Coexistence & Shortcuts (Section N & O)
+          Write-Host "Verifying Dual Coexistence..."
+          if (-not (Test-Path $goExe)) { throw "Go executable was overwritten by Rust installer!" }
+          if (-not (Test-Path $rustExe)) { throw "Rust executable missing!" }
+          if (-not (Test-Path $goDesktopLnk)) { throw "Go desktop shortcut was deleted!" }
+          if (-not (Test-Path $rustDesktopLnk)) { throw "Rust desktop shortcut missing!" }
+
+          # Shortcut integrity & non-null icon inspection
+          Add-Type -AssemblyName System.Drawing
+          $shell = New-Object -ComObject WScript.Shell
+          foreach ($lnkPath in @($goDesktopLnk, $rustDesktopLnk)) {
+            $sc = $shell.CreateShortcut($lnkPath)
+            Write-Host "Shortcut: $lnkPath -> Target: $($sc.TargetPath), Icon: $($sc.IconLocation)"
+            if (-not (Test-Path $sc.TargetPath)) { throw "Shortcut target does not exist: $($sc.TargetPath)" }
+            $icon = [System.Drawing.Icon]::ExtractAssociatedIcon($sc.TargetPath)
+            if ($null -eq $icon) { throw "Could not extract non-null icon from $($sc.TargetPath)" }
+            $icon.Dispose()
+          }
+
+          # 5. Uninstall Rust version and verify Go still launches
+          Write-Host "Uninstalling Rust version..."
+          $rustUninst = "C:\Program Files\WONDERX V1 Rust\unins000.exe"
+          if (Test-Path $rustUninst) {
+            Start-Process -FilePath $rustUninst -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -Wait
+          }
+          if (Test-Path "C:\Program Files\WONDERX V1 Rust") {
+            throw "Rust install directory was not removed after uninstall!"
+          }
+          if (-not (Test-Path $goExe)) {
+            throw "Go version was corrupted or deleted after uninstalling Rust!"
+          }
+          Write-Host "Testing Go version launch after Rust uninstall..."
+          $p = Start-Process -FilePath $goExe -ArgumentList "--clear-stale-proxy" -Wait -PassThru
+          Write-Host "Go launch test exit code: $($p.ExitCode)"
+
+          # Clean up Go version
+          $goUninst = "C:\Program Files\WONDERX V1\unins000.exe"
+          if (Test-Path $goUninst) {
+            Start-Process -FilePath $goUninst -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -Wait
+          }
+          Write-Host "Installer Smoke & Coexistence Test Passed Successfully!"
 
       - name: Prepare Windows outputs
         shell: bash
