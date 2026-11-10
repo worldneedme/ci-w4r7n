@@ -270,11 +270,33 @@ jobs:
           foreach ($required in @('FlClash.exe', 'FlClashCore.exe', 'manifest.json', 'protocol-helpers\naive.exe')) {
             if (-not (Test-Path (Join-Path $root $required))) { throw "$required is missing" }
           }
+          $expectVi = [ordered]@{ 'FlClashCore.exe' = 'WONDERX V1 Core'; 'FlClashHelperService.exe' = 'WONDERX V1 Helper' }
+          foreach ($name in $expectVi.Keys) {
+            $vi = (Get-Item (Join-Path $root $name)).VersionInfo
+            Write-Host "$name FileDescription='$($vi.FileDescription)' ProductName='$($vi.ProductName)'"
+            if ($vi.FileDescription -ne $expectVi[$name]) { throw "$name FileDescription is '$($vi.FileDescription)', expected '$($expectVi[$name])'" }
+          }
           if (Test-Path (Join-Path $root 'protocol-helpers\juicity-client.exe')) {
             throw 'Juicity must be native and must not ship as a helper executable.'
           }
           $process = Start-Process -FilePath $exe -WorkingDirectory $root -WindowStyle Hidden -PassThru
-          Start-Sleep -Seconds 12
+          # UI and Core memory over the first 3 minutes (report only; the user saw the UI peak near 1 GB, then fall back)
+          $peak = @{}
+          Write-Host "MEMORY t(s) process WorkingSet(MB) Private(MB)"
+          for ($t = 0; $t -le 180; $t += 5) {
+            Get-Process -Name FlClash,FlClashCore -ErrorAction SilentlyContinue |
+              Where-Object { $_.Path -and $_.Path.StartsWith($root, [StringComparison]::OrdinalIgnoreCase) } |
+              ForEach-Object {
+                $ws = [math]::Round($_.WorkingSet64 / 1MB, 1)
+                $pm = [math]::Round($_.PrivateMemorySize64 / 1MB, 1)
+                Write-Host ("MEMORY {0,4} {1,-12} {2,8} {3,8}" -f $t, $_.ProcessName, $ws, $pm)
+                if (-not $peak.ContainsKey($_.ProcessName) -or $peak[$_.ProcessName] -lt $pm) { $peak[$_.ProcessName] = $pm }
+              }
+            $process.Refresh()
+            if ($process.HasExited) { break }
+            Start-Sleep -Seconds 5
+          }
+          $peak.GetEnumerator() | ForEach-Object { Write-Host "MEMORY PEAK private $($_.Key)=$($_.Value) MB" }
           $process.Refresh()
           if ($process.HasExited -and $process.ExitCode -ne 0) {
             throw "FlClash.exe exited during smoke with code $($process.ExitCode)"

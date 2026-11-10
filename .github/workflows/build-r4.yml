@@ -717,8 +717,30 @@ jobs:
             if (-not (Test-Path (Join-Path $root $required))) { throw "$required is missing from archive" }
           }
           if (Test-Path (Join-Path $root 'FlClashHelperService.exe')) { throw 'archive ships the Go Helper name FlClashHelperService.exe' }
+          $expectVi = [ordered]@{ 'FlClashCore.exe' = 'WONDERX V1 Rust Core'; 'FlClashHelperServiceRust.exe' = 'WONDERX V1 Rust Helper' }
+          foreach ($name in $expectVi.Keys) {
+            $vi = (Get-Item (Join-Path $root $name)).VersionInfo
+            Write-Host "$name FileDescription='$($vi.FileDescription)' ProductName='$($vi.ProductName)'"
+            if ($vi.FileDescription -ne $expectVi[$name]) { throw "$name FileDescription is '$($vi.FileDescription)', expected '$($expectVi[$name])'" }
+          }
           $process = Start-Process -FilePath $exe -WorkingDirectory $root -WindowStyle Hidden -PassThru
-          Start-Sleep -Seconds 10
+          # UI and Core memory over the first 3 minutes (report only; the user saw the UI peak near 1 GB, then fall back)
+          $peak = @{}
+          Write-Host "MEMORY t(s) process WorkingSet(MB) Private(MB)"
+          for ($t = 0; $t -le 180; $t += 5) {
+            Get-Process -Name FlClash,FlClashCore -ErrorAction SilentlyContinue |
+              Where-Object { $_.Path -and $_.Path.StartsWith($root, [StringComparison]::OrdinalIgnoreCase) } |
+              ForEach-Object {
+                $ws = [math]::Round($_.WorkingSet64 / 1MB, 1)
+                $pm = [math]::Round($_.PrivateMemorySize64 / 1MB, 1)
+                Write-Host ("MEMORY {0,4} {1,-12} {2,8} {3,8}" -f $t, $_.ProcessName, $ws, $pm)
+                if (-not $peak.ContainsKey($_.ProcessName) -or $peak[$_.ProcessName] -lt $pm) { $peak[$_.ProcessName] = $pm }
+              }
+            $process.Refresh()
+            if ($process.HasExited) { break }
+            Start-Sleep -Seconds 5
+          }
+          $peak.GetEnumerator() | ForEach-Object { Write-Host "MEMORY PEAK private $($_.Key)=$($_.Value) MB" }
           $process.Refresh()
           if ($process.HasExited -and $process.ExitCode -ne 0) {
             throw "FlClash.exe exited during smoke with code $($process.ExitCode)"
@@ -968,6 +990,9 @@ jobs:
           if ((Get-Service FlClashHelperServiceRust -ErrorAction Stop).Status -ne 'Running') { throw 'Rust Helper service is not running' }
           $rustSvcExe = Get-ServiceExe 'FlClashHelperServiceRust'
           Write-Host "Rust Helper service: $rustSvcExe"
+          $rustSvcName = (Get-Service FlClashHelperServiceRust).DisplayName
+          Write-Host "Rust Helper service display name: $rustSvcName"
+          if ($rustSvcName -ne 'WONDERX V1 Rust Helper') { throw "Rust Helper service display name is '$rustSvcName'" }
           if ($rustSvcExe -notlike "*$rustHelper*") { throw "Rust Helper service points at $rustSvcExe" }
           if ((Get-ServiceExe 'FlClashHelperService') -ne $goSvcExe -or (Get-Service FlClashHelperService).Status -ne 'Running') { throw 'Installing the Rust Helper disturbed the Go Helper' }
           $goPort = Get-HelperPort 'FlClashHelperService'
