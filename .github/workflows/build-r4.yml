@@ -947,8 +947,17 @@ jobs:
           # 3a. Upgrade path: install the previous Rust package (FlClash file names), register its Helper service
           $oldRustTag = "wonderx-v1-0.9.3-pure-rust-test-20261110-r16"
           New-Item -ItemType Directory -Force -Path old_rust_setup | Out-Null
-          gh release download $oldRustTag --repo worldneedme/ci-w4r7n --pattern "*setup.exe" --dir old_rust_setup --clobber
-          $oldRustSetup = Get-ChildItem -Path '.\old_rust_setup' -Filter '*setup.exe' | Select-Object -First 1
+          $oldRustSetup = $null
+          for ($i = 1; $i -le 6 -and -not $oldRustSetup; $i++) {
+            gh release download $oldRustTag --repo worldneedme/ci-w4r7n --pattern "*setup.exe" --dir old_rust_setup --clobber
+            $oldRustSetup = Get-ChildItem -Path '.\old_rust_setup' -Filter '*setup.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $oldRustSetup) {
+              $assetUrl = (gh release view $oldRustTag --repo worldneedme/ci-w4r7n --json assets -q '.assets[] | select(.name | endswith("setup.exe")) | .url')
+              if ($assetUrl) { curl.exe --noproxy "*" -fL --retry 3 -H "Authorization: token $env:GH_TOKEN" -H "Accept: application/octet-stream" $assetUrl -o "old_rust_setup\old-rust-setup.exe" }
+              $oldRustSetup = Get-ChildItem -Path '.\old_rust_setup' -Filter '*setup.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+            }
+            if (-not $oldRustSetup) { Start-Sleep -Seconds (5 * $i) }
+          }
           if (-not $oldRustSetup) { throw 'previous Rust setup could not be downloaded' }
           Start-Process -FilePath $oldRustSetup.FullName -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -Wait
           $oldRustApp = Get-AppInstallation -namePattern "Rust"
