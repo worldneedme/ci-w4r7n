@@ -86,11 +86,11 @@ async def run(a):
     app_dir = os.path.abspath(a.app_dir)
     with open(os.path.join(app_dir, "manifest.json"), encoding="utf-8") as fh:
         want_sha = json.load(fh)["coreSha256"]
-    with open(os.path.join(app_dir, "FlClashCore.exe"), "rb") as fh:
+    with open(os.path.join(app_dir, "WONDERX-V1-Rust-Core.exe"), "rb") as fh:
         real_sha = hashlib.sha256(fh.read()).hexdigest()
     print("manifest coreSha256=%s file=%s" % (want_sha, real_sha))
     if want_sha != real_sha:
-        return ["manifest coreSha256 does not match installed FlClashCore.exe"]
+        return ["manifest coreSha256 does not match installed WONDERX-V1-Rust-Core.exe"]
 
     st, body = helper(a.port, "GET", "/ping?coreSha256=" + want_sha)
     print("ping:", st, body[:300])

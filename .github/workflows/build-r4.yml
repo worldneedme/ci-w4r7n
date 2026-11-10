@@ -645,8 +645,8 @@ jobs:
       - name: Replace FlClashCore.exe with new r4 build
         shell: bash
         run: |
-          cp core/target/release/FlClashCore.exe client/libclash/windows/FlClashCore.exe
-          sha256sum client/libclash/windows/FlClashCore.exe
+          cp core/target/release/FlClashCore.exe client/libclash/windows/WONDERX-V1-Rust-Core.exe
+          sha256sum client/libclash/windows/WONDERX-V1-Rust-Core.exe
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -712,12 +712,15 @@ jobs:
           if (-not $zip) { throw 'Windows ZIP was not produced.' }
           $root = Join-Path (Get-Location).Path 'smoke'
           Expand-Archive -LiteralPath $zip.FullName -DestinationPath $root -Force
-          $exe = Join-Path $root 'FlClash.exe'
-          foreach ($required in @('FlClash.exe', 'FlClashCore.exe', 'manifest.json', 'protocol-helpers\naive.exe', 'FlClashHelperServiceRust.exe')) {
+          $exe = Join-Path $root 'WONDERX-V1-Rust.exe'
+          foreach ($required in @('WONDERX-V1-Rust.exe', 'WONDERX-V1-Rust-Core.exe', 'manifest.json', 'protocol-helpers\naive.exe', 'WONDERX-V1-Rust-Helper.exe')) {
             if (-not (Test-Path (Join-Path $root $required))) { throw "$required is missing from archive" }
           }
           if (Test-Path (Join-Path $root 'FlClashHelperService.exe')) { throw 'archive ships the Go Helper name FlClashHelperService.exe' }
-          $expectVi = [ordered]@{ 'FlClashCore.exe' = 'WONDERX V1 Rust Core'; 'FlClashHelperServiceRust.exe' = 'WONDERX V1 Rust Helper' }
+          if (Test-Path (Join-Path $root 'WONDERX-V1-Helper.exe')) { throw 'archive ships the Go Helper name WONDERX-V1-Helper.exe' }
+          $flNames = @(Get-ChildItem -Path $root -Recurse -File | Where-Object { $_.Name -like '*FlClash*' } | ForEach-Object { $_.FullName })
+          if ($flNames.Count -gt 0) { throw "archive still has FlClash-named files: $($flNames -join ', ')" }
+          $expectVi = [ordered]@{ 'WONDERX-V1-Rust-Core.exe' = 'WONDERX V1 Rust Core'; 'WONDERX-V1-Rust-Helper.exe' = 'WONDERX V1 Rust Helper' }
           foreach ($name in $expectVi.Keys) {
             $vi = (Get-Item (Join-Path $root $name)).VersionInfo
             Write-Host "$name FileDescription='$($vi.FileDescription)' ProductName='$($vi.ProductName)'"
@@ -728,7 +731,7 @@ jobs:
           $peak = @{}
           Write-Host "MEMORY t(s) process WorkingSet(MB) Private(MB)"
           for ($t = 0; $t -le 180; $t += 5) {
-            Get-Process -Name FlClash,FlClashCore -ErrorAction SilentlyContinue |
+            Get-Process -Name WONDERX-V1-Rust,WONDERX-V1-Rust-Core -ErrorAction SilentlyContinue |
               Where-Object { $_.Path -and $_.Path.StartsWith($root, [StringComparison]::OrdinalIgnoreCase) } |
               ForEach-Object {
                 $ws = [math]::Round($_.WorkingSet64 / 1MB, 1)
@@ -743,9 +746,9 @@ jobs:
           $peak.GetEnumerator() | ForEach-Object { Write-Host "MEMORY PEAK private $($_.Key)=$($_.Value) MB" }
           $process.Refresh()
           if ($process.HasExited -and $process.ExitCode -ne 0) {
-            throw "FlClash.exe exited during smoke with code $($process.ExitCode)"
+            throw "WONDERX-V1-Rust.exe exited during smoke with code $($process.ExitCode)"
           }
-          Get-Process -Name FlClash,FlClashCore -ErrorAction SilentlyContinue |
+          Get-Process -Name WONDERX-V1-Rust,WONDERX-V1-Rust-Core -ErrorAction SilentlyContinue |
             Where-Object { $_.Path -and $_.Path.StartsWith($root, [StringComparison]::OrdinalIgnoreCase) } |
             Stop-Process -Force -ErrorAction SilentlyContinue
           Start-Process -FilePath $exe -ArgumentList "--clear-stale-proxy" -Wait -WindowStyle Hidden -ErrorAction SilentlyContinue
@@ -757,7 +760,7 @@ jobs:
         run: |
           $root = Join-Path (Get-Location).Path 'client\smoke'
           python .github/smoke/rust_win_smoke.py `
-            --core "$root\FlClashCore.exe" `
+            --core "$root\WONDERX-V1-Rust-Core.exe" `
             --app-dir "$root" `
             --realshape .github/smoke/realshape_sanitized.yaml `
             --loops 5
@@ -832,8 +835,8 @@ jobs:
               foreach ($k in $keys) {
                 Write-Host "Found registry entry: DisplayName='$($k.DisplayName)', InstallLocation='$($k.InstallLocation)', UninstallString='$($k.UninstallString)'"
                 if ($k.InstallLocation -and (Test-Path $k.InstallLocation)) {
-                  $candidate = Join-Path $k.InstallLocation "FlClash.exe"
-                  if (Test-Path $candidate) {
+                  $candidate = @("WONDERX-V1-Rust.exe", "WONDERX-V1.exe", "FlClash.exe") | ForEach-Object { Join-Path $k.InstallLocation $_ } | Where-Object { Test-Path $_ } | Select-Object -First 1
+                  if ($candidate) {
                     $uninst = if ($k.UninstallString) { ($k.UninstallString -replace '"', '').Trim() } else { Join-Path $k.InstallLocation "unins000.exe" }
                     return @{ Exe = $candidate; Dir = $k.InstallLocation; Uninst = $uninst; DisplayName = $k.DisplayName }
                   }
@@ -841,8 +844,8 @@ jobs:
                 if ($k.UninstallString) {
                   $clean = ($k.UninstallString -replace '"', '').Trim()
                   $dir = Split-Path $clean
-                  $candidate = Join-Path $dir "FlClash.exe"
-                  if (Test-Path $candidate) {
+                  $candidate = @("WONDERX-V1-Rust.exe", "WONDERX-V1.exe", "FlClash.exe") | ForEach-Object { Join-Path $dir $_ } | Where-Object { Test-Path $_ } | Select-Object -First 1
+                  if ($candidate) {
                     return @{ Exe = $candidate; Dir = $dir; Uninst = $clean; DisplayName = $k.DisplayName }
                   }
                 }
@@ -850,7 +853,7 @@ jobs:
             }
 
             # Fallback: filesystem directory search
-            Write-Host "Registry entry did not yield FlClash.exe, searching filesystem directories..."
+            Write-Host "Registry entry did not yield the app exe, searching filesystem directories..."
             $searchRoots = @(
               $env:ProgramFiles,
               ${env:ProgramFiles(x86)},
@@ -858,7 +861,7 @@ jobs:
             ) | Where-Object { $_ -and (Test-Path $_) }
 
             foreach ($sr in $searchRoots) {
-              $matches = Get-ChildItem -Path $sr -Filter "FlClash.exe" -Recurse -Depth 3 -ErrorAction SilentlyContinue |
+              $matches = Get-ChildItem -Path $sr -Include "WONDERX-V1-Rust.exe","WONDERX-V1.exe","FlClash.exe" -Recurse -Depth 3 -ErrorAction SilentlyContinue |
                 Where-Object {
                   $d = $_.DirectoryName
                   $d -like "*$namePattern*" -and (-not $excludePattern -or ($d -notlike "*$excludePattern*"))
@@ -941,13 +944,35 @@ jobs:
           $goProc.Refresh()
           if ($goProc.HasExited) { throw "Go app exited on its own before the Rust install (code $($goProc.ExitCode))" }
 
-          # 3. Install Rust version
+          # 3a. Upgrade path: install the previous Rust package (FlClash file names), register its Helper service
+          $oldRustTag = "wonderx-v1-0.9.3-pure-rust-test-20261110-r16"
+          New-Item -ItemType Directory -Force -Path old_rust_setup | Out-Null
+          gh release download $oldRustTag --repo worldneedme/ci-w4r7n --pattern "*setup.exe" --dir old_rust_setup --clobber
+          $oldRustSetup = Get-ChildItem -Path '.\old_rust_setup' -Filter '*setup.exe' | Select-Object -First 1
+          if (-not $oldRustSetup) { throw 'previous Rust setup could not be downloaded' }
+          Start-Process -FilePath $oldRustSetup.FullName -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -Wait
+          $oldRustApp = Get-AppInstallation -namePattern "Rust"
+          if (-not $oldRustApp) { throw 'previous Rust package did not install' }
+          Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($oldRustApp.Dir, [StringComparison]::OrdinalIgnoreCase) } | Stop-Process -Force -ErrorAction SilentlyContinue
+          & (Join-Path $oldRustApp.Dir 'FlClashHelperServiceRust.exe') install --owner-pid $PID
+          if ($LASTEXITCODE -ne 0) { throw "old Rust Helper install exited $LASTEXITCODE" }
+          Start-Sleep -Seconds 3
+          if ((Get-Service FlClashHelperServiceRust -ErrorAction Stop).Status -ne 'Running') { throw 'old Rust Helper service is not running' }
+          Write-Host "Previous Rust package installed at $($oldRustApp.Dir) with service FlClashHelperServiceRust"
+
+          # 3. Install Rust version (upgrade over the previous one)
           Write-Host "Installing Rust version silently..."
           Start-Process -FilePath $setup.FullName -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -Wait
           $rustApp = Get-AppInstallation -namePattern "Rust"
           if (-not $rustApp) { throw "Rust version could not be located via registry InstallLocation or filesystem search!" }
           $rustExe = $rustApp.Exe
           Write-Host "Rust version located at: $rustExe"
+          if ((Split-Path $rustExe -Leaf) -ne 'WONDERX-V1-Rust.exe') { throw "Rust app exe is $rustExe" }
+          if ($rustApp.Dir -ne $oldRustApp.Dir) { throw "upgrade moved the install from $($oldRustApp.Dir) to $($rustApp.Dir)" }
+          if (Get-Service FlClashHelperServiceRust -ErrorAction SilentlyContinue) { throw 'upgrade left the old FlClashHelperServiceRust service behind' }
+          $leftovers = @(Get-ChildItem -Path $rustApp.Dir -File | Where-Object { $_.Name -like 'FlClash*' } | ForEach-Object { $_.Name })
+          if ($leftovers.Count -gt 0) { throw "upgrade left old files: $($leftovers -join ', ')" }
+          Write-Host "Upgrade check: old service and FlClash files removed"
 
           $rustDesktopLnk = Find-DesktopShortcut -namePattern "Rust"
           if (-not $rustDesktopLnk) { throw "Rust desktop shortcut missing!" }
@@ -980,26 +1005,27 @@ jobs:
           if ((Get-ServiceExe 'FlClashHelperService') -ne $goSvcExe) { throw 'Rust install re-pointed the Go Helper service' }
           $rustDir = $rustApp.Dir
           if (Test-Path (Join-Path $rustDir 'FlClashHelperService.exe')) { throw 'Rust install ships the Go Helper name' }
-          $rustHelper = Join-Path $rustDir 'FlClashHelperServiceRust.exe'
+          if (Test-Path (Join-Path $rustDir 'WONDERX-V1-Helper.exe')) { throw 'Rust install ships the new Go Helper name' }
+          $rustHelper = Join-Path $rustDir 'WONDERX-V1-Rust-Helper.exe'
           if (-not (Test-Path $rustHelper)) { throw "Rust Helper missing: $rustHelper" }
 
           # 4c. Rust Helper registers its own service next to the Go one (what the app does when TUN is turned on)
           & $rustHelper install --owner-pid $PID
           if ($LASTEXITCODE -ne 0) { throw "Rust Helper install exited $LASTEXITCODE" }
           Start-Sleep -Seconds 3
-          if ((Get-Service FlClashHelperServiceRust -ErrorAction Stop).Status -ne 'Running') { throw 'Rust Helper service is not running' }
-          $rustSvcExe = Get-ServiceExe 'FlClashHelperServiceRust'
+          if ((Get-Service WONDERX-V1-Rust-Helper -ErrorAction Stop).Status -ne 'Running') { throw 'Rust Helper service is not running' }
+          $rustSvcExe = Get-ServiceExe 'WONDERX-V1-Rust-Helper'
           Write-Host "Rust Helper service: $rustSvcExe"
-          $rustSvcName = (Get-Service FlClashHelperServiceRust).DisplayName
+          $rustSvcName = (Get-Service WONDERX-V1-Rust-Helper).DisplayName
           Write-Host "Rust Helper service display name: $rustSvcName"
           if ($rustSvcName -ne 'WONDERX V1 Rust Helper') { throw "Rust Helper service display name is '$rustSvcName'" }
           if ($rustSvcExe -notlike "*$rustHelper*") { throw "Rust Helper service points at $rustSvcExe" }
           if ((Get-ServiceExe 'FlClashHelperService') -ne $goSvcExe -or (Get-Service FlClashHelperService).Status -ne 'Running') { throw 'Installing the Rust Helper disturbed the Go Helper' }
           $goPort = Get-HelperPort 'FlClashHelperService'
-          $rustPort = Get-HelperPort 'FlClashHelperServiceRust'
+          $rustPort = Get-HelperPort 'WONDERX-V1-Rust-Helper'
           Write-Host "Helper ports: Go=$goPort Rust=$rustPort"
           if (-not $goPort -or -not $rustPort -or $goPort -eq $rustPort) { throw "Helper ports are not distinct: Go=$goPort Rust=$rustPort" }
-          Assert-HelperPing 'FlClashHelperServiceRust' $rustDir
+          Assert-HelperPing 'WONDERX-V1-Rust-Helper' $rustDir
           Assert-HelperPing 'FlClashHelperService' $goDir
 
           # 4d. Real TUN through the installed Rust Helper: adapter Up, routes, no-proxy traffic seen by the core, clean stop
@@ -1021,10 +1047,10 @@ jobs:
             Start-Sleep -Seconds 1
           }
           if (Test-Path $rustExe) {
-            throw "Rust FlClash.exe was not removed after uninstall!"
+            throw "Rust WONDERX-V1-Rust.exe was not removed after uninstall!"
           }
           Start-Sleep -Seconds 2
-          if (Get-Service FlClashHelperServiceRust -ErrorAction SilentlyContinue) { throw 'Rust Helper service left behind after uninstall' }
+          if (Get-Service WONDERX-V1-Rust-Helper -ErrorAction SilentlyContinue) { throw 'Rust Helper service left behind after uninstall' }
           if ((Get-Service FlClashHelperService -ErrorAction Stop).Status -ne 'Running') { throw 'Rust uninstall stopped the Go Helper service' }
           if ((Get-ServiceExe 'FlClashHelperService') -ne $goSvcExe) { throw 'Rust uninstall re-pointed the Go Helper service' }
           Assert-HelperPing 'FlClashHelperService' $goDir
