@@ -689,6 +689,14 @@ jobs:
             fi
           fi
           ls -lh ../go_setup_dir/
+          echo "Pre-fetching previous Rust installer for the upgrade check..."
+          mkdir -p ../old_rust_setup
+          OLD_RUST_TAG="wonderx-v1-0.9.3-pure-rust-test-20261110-r16"
+          for i in 1 2 3 4; do
+            gh release download "$OLD_RUST_TAG" --repo worldneedme/ci-w4r7n -p "*setup.exe" -D ../old_rust_setup --clobber && break
+            sleep $((i*5))
+          done
+          ls -lh ../old_rust_setup/
           for i in 1 2 3; do
             echo "Packaging Windows attempt $i..."
             if dart setup.dart windows -v; then
@@ -820,7 +828,8 @@ jobs:
           # Previous Rust package for the upgrade check, fetched before any app can touch the network
           $oldRustTag = "wonderx-v1-0.9.3-pure-rust-test-20261110-r16"
           New-Item -ItemType Directory -Force -Path old_rust_setup | Out-Null
-          $oldRustSetup = $null
+          $oldRustSetup = Get-ChildItem -Path '.\old_rust_setup' -Filter '*setup.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($oldRustSetup) { Write-Host "Using pre-fetched previous Rust setup: $($oldRustSetup.FullName)" }
           for ($i = 1; $i -le 6 -and -not $oldRustSetup; $i++) {
             gh release download $oldRustTag --repo worldneedme/ci-w4r7n --pattern "*setup.exe" --dir old_rust_setup --clobber
             $oldRustSetup = Get-ChildItem -Path '.\old_rust_setup' -Filter '*setup.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
