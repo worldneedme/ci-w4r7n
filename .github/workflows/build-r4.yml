@@ -180,7 +180,9 @@ jobs:
           RUSTFLAGS: "-Awarnings"
         run: |
           cd core
-          cargo build -p meow-app -p meow-bench --example throughput_interleaved --release
+          cargo build -p meow-app --bin meow --release
+          cargo build -p meow-bench --example throughput_interleaved --release
+          ls -la target/release/meow target/release/examples/throughput_interleaved
 
       - name: Download official mihomo v1.19.31
         env:
