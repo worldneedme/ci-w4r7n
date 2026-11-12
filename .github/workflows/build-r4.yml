@@ -14,7 +14,7 @@ on:
       client_ref:
         description: 'xxdmanfl0609 commit/branch'
         required: true
-        default: '727a9ea28291c52fed9d6947af7dba27bdeff3ae'
+        default: '0e1e5223e7e780811701d4dc6aa7b04c5666a00d'
 
 permissions:
   contents: write
