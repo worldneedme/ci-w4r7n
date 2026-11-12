@@ -6,11 +6,11 @@ on:
       tag:
         description: 'Release tag'
         required: true
-        default: 'wonderx-v1-0.9.3-pure-rust-test-20261109-r14'
+        default: 'wonderx-v1-0.9.3-pure-rust-test-20261112-r16b'
       core_commit:
         description: 'wonderx-core-rs commit'
         required: true
-        default: 'e63ba3a24ec6b9a2b26ced51432cf628dff95e6c'
+        default: 'hark/r16-xhttp-parity-20261112'
       client_ref:
         description: 'xxdmanfl0609 commit/branch'
         required: true
@@ -29,6 +29,8 @@ jobs:
     name: Interop & Contract Tests (Linux)
     runs-on: ubuntu-24.04
     steps:
+      - uses: actions/checkout@v4
+
       - name: Setup SSH keys
         shell: bash
         run: |
@@ -172,6 +174,45 @@ jobs:
         with:
           name: linux-core-amd64
           path: linux_out/*
+
+      - name: Build meow & throughput harness
+        env:
+          RUSTFLAGS: "-Awarnings"
+        run: |
+          cd core
+          cargo build -p meow-app -p meow-bench --example throughput_interleaved --release
+
+      - name: Download official mihomo v1.19.31
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if ! curl -fsSL -o /tmp/mihomo.gz "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.31/mihomo-linux-amd64-v1.19.31.gz"; then
+            gh release download v1.19.31 --repo MetaCubeX/mihomo -p "mihomo-linux-amd64-v1.19.31.gz" -O /tmp/mihomo.gz
+          fi
+          gzip -d -f /tmp/mihomo.gz
+          chmod +x /tmp/mihomo
+          /tmp/mihomo -v
+
+      - name: Run 5-round throughput & RSS benchmark (Rust vs Go)
+        run: |
+          python3 .github/smoke/bench_throughput_rss_5rounds.py \
+            --core-dir core \
+            --mihomo-bin /tmp/mihomo \
+            --rounds 5 \
+            --out-json throughput-rss-5rounds.json \
+            --out-report throughput-rss-report.md
+          if [ -f throughput-rss-report.md ]; then
+            cat throughput-rss-report.md >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload Throughput & RSS Benchmark Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: throughput-rss-benchmark
+          path: |
+            throughput-rss-report.md
+            throughput-rss-5rounds.json
 
   build-and-package-android:
     name: Build & Package Android APK (arm64-v8a)
