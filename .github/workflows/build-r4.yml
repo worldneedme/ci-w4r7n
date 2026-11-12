@@ -151,6 +151,14 @@ jobs:
           cd core
           cargo test -p wonderx-service --quiet -- --nocapture
 
+      - name: Run xhttp transport and config tests
+        env:
+          RUSTFLAGS: "-Awarnings"
+        run: |
+          cd core
+          cargo test -p meow-transport --features xhttp --test xhttp_test -- --nocapture
+          cargo test -p meow-config --features vless --lib proxy_parser -- --nocapture
+
       - name: Build Linux FlClashCore binary (for G13 verification)
         run: |
           cd core
