@@ -67,8 +67,9 @@ jobs:
       - name: Clone wonderx-core-rs
         shell: bash
         run: |
-          git clone git@github.com-core:worldneedme/wonderx-core-rs.git core
+          git clone --no-single-branch git@github.com-core:worldneedme/wonderx-core-rs.git core
           cd core
+          git fetch origin ${{ inputs.core_commit }} || true
           git checkout ${{ inputs.core_commit }}
 
       - name: Setup Rust toolchain
@@ -274,8 +275,9 @@ jobs:
       - name: Clone wonderx-core-rs
         shell: bash
         run: |
-          git clone git@github.com-core:worldneedme/wonderx-core-rs.git core
+          git clone --no-single-branch git@github.com-core:worldneedme/wonderx-core-rs.git core
           cd core
+          git fetch origin ${{ inputs.core_commit }} || true
           git checkout ${{ inputs.core_commit }}
 
       - name: Setup Rust toolchain
@@ -625,8 +627,9 @@ jobs:
       - name: Clone wonderx-core-rs
         shell: bash
         run: |
-          git clone git@github.com-core:worldneedme/wonderx-core-rs.git core
+          git clone --no-single-branch git@github.com-core:worldneedme/wonderx-core-rs.git core
           cd core
+          git fetch origin ${{ inputs.core_commit }} || true
           git checkout ${{ inputs.core_commit }}
 
       - name: Setup NASM
