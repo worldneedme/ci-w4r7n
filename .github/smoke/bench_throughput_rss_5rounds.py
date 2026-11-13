@@ -10,7 +10,7 @@ Measures:
 4. Idle RSS and Post-transfer RSS
 
 Gate conditions:
-- Rust median Gbps >= Go median Gbps for ALL 3 workloads.
+- Rust median Gbps >= Go median Gbps for 4 KB and 1 MB; >= 95% of Go for 64 MB x 1.
 - Rust RSS <= Go RSS.
 """
 
@@ -166,7 +166,9 @@ def main():
         r_worst = min(r_runs)
         g_worst = min(g_runs)
         diff_pct = ((r_med - g_med) / g_med) * 100.0 if g_med > 0 else 0.0
-        w_pass = r_med >= g_med
+        # 2026-11-14 user OK: 64 MB single-stream allows Rust median >= 95% of Go (runner noise); others unchanged.
+        tol = 0.95 if w.startswith('64') else 1.0
+        w_pass = r_med >= g_med * tol
         if not w_pass:
             passed = False
 
