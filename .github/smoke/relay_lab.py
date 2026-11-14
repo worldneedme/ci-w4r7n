@@ -43,3 +43,7 @@ finally:
         p.send_signal(signal.SIGINT)
         try: p.wait(3)
         except Exception: p.kill()
+    for f in sorted(wd.glob("*.log")):
+        lines = f.read_text(errors="replace").splitlines()
+        dbg = [l for l in lines if "relay-debug" in l]
+        print(f"--- {f.name}: {len(lines)} lines, relay-debug {len(dbg)}; sample: {sorted(set(d.split('relay-debug')[1] for d in dbg))[:4]}")
