@@ -1,0 +1,75 @@
+name: Relay Lab
+
+on:
+  workflow_dispatch:
+    inputs:
+      core_commit:
+        required: true
+      rounds:
+        default: '10'
+      groups:
+        default: '[["rust_1m","go_a","go_b"],["rust_64k","rust_256k","go_a"],["rust_1m","rust_64k","go_b"]]'
+      variants:
+        default: '{"rust_1m":{"kind":"meow"},"rust_64k":{"kind":"meow","env":{"WONDERX_RELAY_PIPE_BYTES":"65536"}},"rust_256k":{"kind":"meow","env":{"WONDERX_RELAY_PIPE_BYTES":"262144"}},"go_a":{"kind":"go"},"go_b":{"kind":"go"}}'
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup SSH keys
+        shell: bash
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.CORE_READ_KEY }}" > ~/.ssh/id_core
+          printf '%s\n' "${{ secrets.PROTO_READ_KEY }}" > ~/.ssh/id_proto
+          chmod 600 ~/.ssh/id_core ~/.ssh/id_proto
+          cat > ~/.ssh/config << 'EOF'
+          Host github.com-core
+            HostName github.com
+            User git
+            IdentityFile ~/.ssh/id_core
+            IdentitiesOnly yes
+            StrictHostKeyChecking accept-new
+          Host github.com-proto
+            HostName github.com
+            User git
+            IdentityFile ~/.ssh/id_proto
+            IdentitiesOnly yes
+            StrictHostKeyChecking accept-new
+          EOF
+          git config --global url."git@github.com-proto:worldneedme/wonderx-proto-rs.git".insteadOf "https://github.com/worldneedme/wonderx-proto-rs.git"
+          git config --global --add url."git@github.com-proto:worldneedme/wonderx-proto-rs.git".insteadOf "git@github.com:worldneedme/wonderx-proto-rs.git"
+          git config --global --add url."git@github.com-proto:worldneedme/wonderx-proto-rs.git".insteadOf "https://github.com/worldneedme/wonderx-proto-rs"
+          git config --global url."git@github.com-core:worldneedme/wonderx-core-rs.git".insteadOf "https://github.com/worldneedme/wonderx-core-rs.git"
+          git config --global --add url."git@github.com-core:worldneedme/wonderx-core-rs.git".insteadOf "git@github.com:worldneedme/wonderx-core-rs.git"
+          git config --global --add url."git@github.com-core:worldneedme/wonderx-core-rs.git".insteadOf "https://github.com/worldneedme/wonderx-core-rs"
+      - name: Clone core
+        run: |
+          git clone --no-single-branch git@github.com-core:worldneedme/wonderx-core-rs.git core
+          cd core && git fetch origin ${{ inputs.core_commit }} || true
+          git checkout ${{ inputs.core_commit }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core -> target
+          shared-key: relay-lab
+      - name: Build
+        env:
+          RUSTFLAGS: "-Awarnings"
+        run: |
+          cd core
+          cargo build -p meow-app --bin meow --release
+          cargo build -p meow-bench --example throughput_interleaved --release
+      - name: mihomo
+        run: |
+          curl -fsSL -o /tmp/mihomo.gz "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.31/mihomo-linux-amd64-v1.19.31.gz"
+          gzip -d -f /tmp/mihomo.gz && chmod +x /tmp/mihomo
+      - name: Lab
+        run: |
+          nproc
+          python3 .github/smoke/relay_lab.py core /tmp/mihomo '${{ inputs.rounds }}' '${{ inputs.groups }}' '${{ inputs.variants }}' | tee lab.txt
+          cat lab.txt >> $GITHUB_STEP_SUMMARY
